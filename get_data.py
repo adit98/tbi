@@ -100,5 +100,8 @@ for key in queries.keys():
 
         offset += window_size
 
+    if not os.path.exists("data"):
+        os.makedirs("data")
+
     df.to_csv(os.path.join("data", filename))
     print("got 1")
