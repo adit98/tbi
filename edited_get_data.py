@@ -15,7 +15,7 @@ cursor = conn.cursor()
 
 queries = {
 
-'periodic_query' : "WITH p_id AS ( \
+'lab_query' : "WITH p_id AS ( \
     SELECT distinct patientunitstayid, diagnosisstring \
     FROM eicu_crd.diagnosis \
     WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
@@ -23,19 +23,85 @@ queries = {
 ) \
 SELECT * \
 FROM p_id \
-INNER JOIN eicu_crd.vitalperiodic \
-ON p_id.patientunitstayid = vitalperiodic.patientunitstayid LIMIT {} OFFSET {};",
+INNER JOIN eicu_crd.lab \
+ON p_id.patientunitstayid = lab.patientunitstayid LIMIT {} OFFSET {};",
 
-'aperiodic_query' : "WITH p_id AS ( \
-    SELECT distinct patientunitstayid, diagnosisstring \
-    FROM eicu_crd.diagnosis \
-    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
-    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
-) \
-SELECT * \
-FROM p_id \
-INNER JOIN eicu_crd.vitalaperiodic \
-ON p_id.patientunitstayid = vitalaperiodic.patientunitstayid LIMIT {} OFFSET {};"
+#'infusion_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.infusionDrug \
+#ON p_id.patientunitstayid = infusionDrug.patientunitstayid LIMIT {} OFFSET {};",
+#
+#'medication_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.medication \
+#ON p_id.patientunitstayid = medication.patientunitstayid LIMIT {} OFFSET {};",
+#
+#'patient_demographics_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.patient \
+#ON p_id.patientunitstayid = patient.patientunitstayid LIMIT {} OFFSET {};",
+#
+#'respiratory_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.respiratoryCharting \
+#ON p_id.patientunitstayid = respiratoryCharting.patientunitstayid LIMIT {} OFFSET {};"
+
+#'nursecharting_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.nursecharting \
+#ON p_id.patientunitstayid = nursecharting.patientunitstayid LIMIT {} OFFSET {};"
+
+#'periodic_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.vitalperiodic \
+#ON p_id.patientunitstayid = vitalperiodic.patientunitstayid LIMIT {} OFFSET {};",
+#
+#'aperiodic_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.vitalaperiodic \
+#ON p_id.patientunitstayid = vitalaperiodic.patientunitstayid LIMIT {} OFFSET {};"
 
 #'physiology_query' : "SELECT * \
 #    FROM eicu_crd.apacheApsVar INNER JOIN eicu_crd.diagnosis \
