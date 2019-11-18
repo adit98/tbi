@@ -1,2 +1,5 @@
 **/*.csv
 .ipynb_checkpoints
+
+data/*
+TeamAlpacaPatients.npy
