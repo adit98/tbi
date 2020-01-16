@@ -15,7 +15,7 @@ cursor = conn.cursor()
 
 queries = {
 
-'lab_query' : "WITH p_id AS ( \
+'apache_patient_result_query' : "WITH p_id AS ( \
     SELECT distinct patientunitstayid, diagnosisstring \
     FROM eicu_crd.diagnosis \
     WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
@@ -23,8 +23,19 @@ queries = {
 ) \
 SELECT * \
 FROM p_id \
-INNER JOIN eicu_crd.lab \
-ON p_id.patientunitstayid = lab.patientunitstayid LIMIT {} OFFSET {};",
+INNER JOIN eicu_crd.apachePatientResult \
+ON p_id.patientunitstayid = apachePatientResult.patientunitstayid LIMIT {} OFFSET {};"
+
+#'lab_query' : "WITH p_id AS ( \
+#    SELECT distinct patientunitstayid, diagnosisstring \
+#    FROM eicu_crd.diagnosis \
+#    WHERE (SUBSTRING(diagnosisstring, 1,25) = 'burns/trauma|trauma - CNS' \
+#    OR SUBSTRING(diagnosisstring, 1,23) = 'neurologic|trauma - CNS') \
+#) \
+#SELECT * \
+#FROM p_id \
+#INNER JOIN eicu_crd.lab \
+#ON p_id.patientunitstayid = lab.patientunitstayid LIMIT {} OFFSET {};",
 
 #'infusion_query' : "WITH p_id AS ( \
 #    SELECT distinct patientunitstayid, diagnosisstring \
