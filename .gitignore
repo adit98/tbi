@@ -1,2 +1,19 @@
 .ipynb_checkpoints
 **/time_series_data.csv
+
+# Large data files
+data/apache_pred_data.csv
+data/aperiodic_data.csv.gz
+data/data/
+data/infusion_data.csv
+data/infusion_data_long_query.csv
+data/lab_data.csv
+data/medication_data.csv
+data/medication_data_long_query.csv
+data/nursecharting_data.csv
+data/nursecharting_data.csv.gz
+data/patient_demographics_data.csv
+data/periodic_data.csv.gz
+data/physiology_data.csv
+data/respiratory_data.csv
+data/respiratory_data_long_query.csv
