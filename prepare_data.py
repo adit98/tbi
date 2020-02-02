@@ -110,3 +110,8 @@ def get_demographics(dem_filename):
     demographic = demographic.replace('> 89', 90)
 
     return demographic
+
+def bin_data(summarization_int):
+    pass
+
+
