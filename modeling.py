@@ -22,10 +22,14 @@ if __name__ == "__main__":
     processed_loc = os.path.join(args.data_dir, 'processed')
 
     if args.reload:
-        hr, resp, sao2 = get_physiology(args.data_dir, 'alpaca_hr.csv', 'alpaca_resp.csv', 'alpaca_sao2.csv')
+        hr, resp, sao2 = get_physiology(args.data_dir, 'alpaca_hr.csv',
+                'alpaca_resp.csv', 'alpaca_sao2.csv')
         gcs, final_gcs = get_motor_gcs(os.path.join(args.data_dir, 'patient_motor.csv'))
         lab_data_cts, lab_data_avgs = get_lab_data(os.path.join(args.data_dir, 'lab_data.csv'))
-        dem_data = get_demographics(os.path.join(args.data_dir, 'patient_demographics_data.csv'))
+        mort_data, dem_data, discharge_data = get_demographics(os.path.join(args.data_dir,
+            'patient_demographics_data.csv'))
+        medication_data = get_medication(os.path.join(args.data_dir, 'medication_data.csv'))
+        infusion_data = get_infusion(os.path.join(args.data_dir, 'infusion_data.csv'))
 
         # save all the dataframes
         hr.to_csv(os.path.join(processed_loc, 'hr.csv'))
@@ -35,7 +39,11 @@ if __name__ == "__main__":
         final_gcs.to_csv(os.path.join(processed_loc, 'final_gcs.csv'))
         lab_data_cts.to_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
         lab_data_avgs.to_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
+        mort_data.to_csv(os.path.join(processed_loc, 'mort_data.csv'))
         dem_data.to_csv(os.path.join(processed_loc, 'dem_data.csv'))
+        discharge_data.to_csv(os.path.join(processed_loc, 'discharge_data.csv'))
+        medication_data.to_csv(os.path.join(processed_loc, 'medication_data.csv'))
+        infusion_data.to_csv(os.path.join(processed_loc, 'infusion_data.csv'))
 
     else:
         # populate all the dataframes
@@ -46,4 +54,8 @@ if __name__ == "__main__":
         final_gcs = pd.read_csv(os.path.join(processed_loc, 'final_gcs.csv'))
         lab_data_cts = pd.read_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
         lab_data_avgs = pd.read_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
+        mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_data.csv'))
         dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_data.csv'))
+        discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_data.csv'))
+        medication_data = pd.read_csv(os.path.join(processed_loc, 'medication_data.csv'))
+        infusion_data = pd.read_csv(os.path.join(processed_loc, 'infusion_data.csv'))
