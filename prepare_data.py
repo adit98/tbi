@@ -33,67 +33,20 @@ def get_motor_gcs(gcs_filename):
 
 def get_lab_data(lab_filename):
     # Loading lab data
-    lab = pd.read_csv(lab_filename)
-    lab = lab[lab['labresultoffset'] > -1]
-    lab = lab[lab['labresultoffset'] <= 24*60]
+    lab = pd.read_csv('data/lab_data.csv')
+    lab = lab.loc[lab['labresultoffset'] > -1]
     labtypes = list(lab['labname'].drop_duplicates())
 
-    # Getting table of averages over first 24 hours
-    l = labtypes[0]
-    labtypedata = lab[lab['labname'] == l]
-    labtypedata_avgs = labtypedata.groupby('patientunitstayid').mean()['labresult']
-    labtypedata_avgs = labtypedata_avgs.to_frame().reset_index().rename(columns = {'labresult': l})
-    for l in labtypes[1:]:
-        labtypedata = lab[lab['labname'] == l]
-        labtypedata_avgs1 = labtypedata.groupby('patientunitstayid').mean()['labresult']
-        labtypedata_avgs1 = labtypedata_avgs1.to_frame().reset_index().rename(columns = {'labresult': l})
-        labtypedata_avgs = labtypedata_avgs.merge(labtypedata_avgs1, how='outer', on='patientunitstayid')
+    labmeasures = measurements.copy()
+    toAdd = pd.DataFrame(columns=['patientunitstayid','key','value', 'offset'])
+    toAdd['patientunitstayid'] = lab['patientunitstayid']
+    toAdd['key'] = lab['labname']
+    toAdd['value'] = lab['labresult']
+    toAdd['offset'] = lab['labresultoffset']
+    labmeasures = labmeasures.merge(toAdd, how = 'outer')
+    labmeasures = labmeasures.dropna()
 
-    labtypedata_avgs = labtypedata_avgs[labtypedata_avgs.columns[labtypedata_avgs.isnull().mean() < 0.2]]
-
-    lab_avgs_map = {}
-    for l in labtypes:
-        if l in labtypedata_avgs.columns:
-            col = list(labtypedata_avgs[l].dropna())
-            if len(col) != 0:
-                avg = sum(col)/len(col)
-                lab_avgs_map[l] = avg
-
-            else:
-                labtypedata_avgs = labtypedata_avgs.drop(columns=l)
-
-    for l in labtypedata_avgs.columns:
-        if l != 'patientunitstayid':
-            col = labtypedata_avgs[l]
-            labtypedata_avgs[l] = col.fillna(lab_avgs_map[l])
-
-    l = labtypes[0]
-    labtypedata = lab[lab['labname'] == l]
-    labtypedata_cts = labtypedata.groupby('patientunitstayid').count()['labresult']
-    labtypedata_cts = labtypedata_cts.to_frame().reset_index().rename(columns = {'labresult': l})
-
-    for l in labtypes[1:]:
-        labtypedata = lab[lab['labname'] == l]
-        labtypedata_cts1 = labtypedata.groupby('patientunitstayid').count()['labresult']
-        labtypedata_cts1 = labtypedata_cts1.to_frame().reset_index().rename(columns = {'labresult': l})
-        labtypedata_cts = labtypedata_cts.merge(labtypedata_cts1, how='outer', on='patientunitstayid')
-
-    l = labtypes[0]
-    labtypedata = lab[lab['labname'] == l]
-    labtypedata_cts = labtypedata.groupby('patientunitstayid').count()['labresult']
-    labtypedata_cts = labtypedata_cts.to_frame().reset_index().rename(columns = {'labresult': l})
-
-    for l in labtypes[1:]:
-        labtypedata = lab[lab['labname'] == l]
-        labtypedata_cts1 = labtypedata.groupby('patientunitstayid').count()['labresult']
-        labtypedata_cts1 = labtypedata_cts1.to_frame().reset_index().rename(columns = {'labresult':l})
-        labtypedata_cts = labtypedata_cts.merge(labtypedata_cts1, how='outer', on='patientunitstayid')
-
-    labtypedata_cts = labtypedata_cts[labtypedata_cts.columns[labtypedata_cts.isnull().mean() < 0.2]]
-    labtypedata_cts = labtypedata_cts.apply(lambda x: x.fillna(x.median()),
-            axis=0) > labtypedata_cts.median()
-
-    return labtypedata_cts, labtypedata_avgs
+    return labmeasures
 
 def get_demographics(dem_filename):
     # Loading demographic data
@@ -109,9 +62,89 @@ def get_demographics(dem_filename):
 
     demographic = demographic.replace('> 89', 90)
 
-    return demographic
+    # get discharge location (to use as labels)
+    replace_dict = {'Home': 6, 'Skilled Nursing Facility': 5, 'Nursing Home': 5,
+            'Rehabilitation': 5, 'Other External': 5, 'Floor': 4, 'Other Internal': 4,
+            'Step-Down Unit (SDU)': 3, 'Other Hospital': 3, 'ICU': 2, 'Other ICU': 2,
+            'Other ICU (CABG)': 2, 'Acute Care/Floor': 2, 'Telemetry': 1, 'Operating Room': 1,
+            'Death': 0, 'Other': np.nan}
 
-def bin_data(summarization_int):
-    pass
+    discharge_location = demographic_all.loc[:, ['patientunitstayid',
+        'unitdischargeoffset', 'unitdischargelocation']]
+    discharge_location['unitdischargelocation'].replace(replace_dict, inplace=True)
+    discharge_location.drop_duplicates()
 
+    return died, demographic, discharge_location
 
+def get_medication(med_filename):
+    # Loading medication data
+    medication_all = pd.read_csv(med_filename)
+    medtypes = list(medication_all['drugname'].drop_duplicates().dropna())
+
+    # Getting table of indicator variables for each patient
+    m = medtypes[0]
+    medtypedata = medication_all[medication_all['drugname'] == m][['patientunitstayid']].drop_duplicates()#, 'frequency']]
+    indicator = np.ones((medtypedata.shape[0], 1))
+    medtypedata[m] = indicator
+    for m in medtypes[1:]:
+        medtypedata1 = medication_all[medication_all['drugname'] == m][['patientunitstayid']].drop_duplicates()
+        indicator = np.ones((medtypedata1.shape[0], 1))
+        medtypedata1[m] = indicator
+        medtypedata = medtypedata.merge(medtypedata1, how='outer', on='patientunitstayid')
+
+    medtypedata = medtypedata.fillna(0)
+
+    return medtypedata
+
+def get_infusion(inf_filename):
+    # Loading infusion data
+    infusion_all = pd.read_csv(inf_filename)
+    infusiontypes = list(infusion_all['drugname'].drop_duplicates().dropna())
+
+    # Getting table of indicator variables for each patient
+    i = infusiontypes[0]
+    infusiontypedata = infusion_all[infusion_all['drugname'] == i][['patientunitstayid']].drop_duplicates()
+    indicator = np.ones((infusiontypedata.shape[0], 1))
+    infusiontypedata[i] = indicator
+
+    for i in infusiontypes[1:]:
+        infusiontypedata1 = infusion_all[infusion_all['drugname'] == i][['patientunitstayid']].drop_duplicates()
+        indicator = np.ones((infusiontypedata1.shape[0], 1))
+        infusiontypedata1[i] = indicator
+        infusiontypedata = infusiontypedata.merge(infusiontypedata1, how='outer', on='patientunitstayid')
+
+    infusiontypedata = infusiontypedata.fillna(0)
+
+    return infusiontypedata
+
+def rein(df):
+    df = df.set_index('offsetBin')
+    df = df.drop(['patientunitstayid', 'key'], axis = 1)
+    return df.reindex(np.arange(24)).fillna(method = 'ffill').fillna(method = 'bfill')
+
+def bin_data(summarization_int, hr, resp, sao2, lab_data, med_data, inf_data):
+    #TODO add medication and infusion data
+    measurements = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
+    hr['key'] = 'hr'
+    resp['key'] = 'resp'
+    sao2['key'] = 'sao2'
+    measurements = measurements.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2, how = 'outer').merge(gcs, how = 'outer')
+
+    measurements = measurements.dropna()
+
+    m = lab_data.copy()
+    #m = m[m['patientunitstayid'] < 200000]
+    m = m[m['offset'] < 1440]
+    m['offsetBin'] = (m['offset']/summarization_int).astype(int)
+    m = m.drop('offset', axis = 1)
+    measures_grouped = m.groupby(['patientunitstayid', 'offsetBin', 'key']).mean().reset_index()
+    m2 = measures_grouped.copy()
+
+    #TODO use parallel processing here to speed up
+    m2 = m2.groupby(['patientunitstayid', 'key']).apply(rein)
+
+    m2 = m2.reset_index()
+    m2['pat_off'] = m2['patientunitstayid'].astype(str) + '_' + m2['offsetBin'].astype(str)
+    m2 = m2.pivot(index='pat_off', columns='key', values='value')
+
+    return m2
