@@ -148,6 +148,6 @@ def get_processed_data(summarization_int, hr, resp, sao2, lab_data, med_data, in
 
     # reindex and bin
     ts_data = ts_data.dropna().apply(rein)
-    #ts_data
+    print(ts_data)
 
     return ts_data, lab_data
