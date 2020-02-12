@@ -45,6 +45,8 @@ if __name__ == "__main__":
         medication_data.to_csv(os.path.join(processed_loc, 'medication_data.csv'))
         infusion_data.to_csv(os.path.join(processed_loc, 'infusion_data.csv'))
 
+        #processed_data
+
     else:
         # populate all the dataframes
         hr = pd.read_csv(os.path.join(processed_loc, 'hr.csv'))
