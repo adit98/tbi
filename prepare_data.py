@@ -34,19 +34,36 @@ def get_motor_gcs(gcs_filename):
 def get_lab_data(lab_filename):
     # Loading lab data
     lab = pd.read_csv('data/lab_data.csv')
+
+    # drop rows that are irrelevant (< -1) or outside of first 24 hours
     lab = lab.loc[lab['labresultoffset'] > -1]
-    labtypes = list(lab['labname'].drop_duplicates())
+    lab_data = lab_data.loc[lab_data['labresultoffset'] <= 24*60]
 
-    labmeasures = measurements.copy()
-    toAdd = pd.DataFrame(columns=['patientunitstayid','key','value', 'offset'])
-    toAdd['patientunitstayid'] = lab['patientunitstayid']
-    toAdd['key'] = lab['labname']
-    toAdd['value'] = lab['labresult']
-    toAdd['offset'] = lab['labresultoffset']
-    labmeasures = labmeasures.merge(toAdd, how = 'outer')
-    labmeasures = labmeasures.dropna()
+    # extract relevant and rename columns
+    lab_data = lab_data[['patientunitstayid', 'labresultoffset', 'labname', 'labresult']]
+    lab_data.rename({'labresultoffset':'offset'})
 
-    return labmeasures
+    # pivot so that each column is a lab
+    lab_data_piv = pd.pivot_table(lab_data, index=['patientunitstayid',
+        'labresultoffset'], columns='labname', values = 'labresult').reset_index()
+
+    # TODO exclude missing lab features after selecting the correct patient set
+
+    # get counts of each lab for each patient
+    lab_counts = lab_data_piv.groupby('patientunitstayid').count().reset_index()
+    lab_counts = lab_counts.drop(columns=['labresultoffset'])
+
+    # get avg lab value for each patient
+    lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
+    lab_avgs = lab_avgs.drop(columns=['labresultoffset'])
+
+    # drop labs that <80% of patients get
+    lab_counts = lab_counts[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
+    lab_avgs = lab_avgs[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
+    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()))
+
+    return lab_counts, lab_avgs
+
 
 def get_demographics(dem_filename):
     # Loading demographic data
@@ -122,29 +139,15 @@ def rein(df):
     df = df.drop(['patientunitstayid', 'key'], axis = 1)
     return df.reindex(np.arange(24)).fillna(method = 'ffill').fillna(method = 'bfill')
 
-def bin_data(summarization_int, hr, resp, sao2, lab_data, med_data, inf_data):
-    #TODO add medication and infusion data
-    measurements = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
+def get_processed_data(summarization_int, hr, resp, sao2, lab_data, med_data, inf_data):
+    ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
     hr['key'] = 'hr'
     resp['key'] = 'resp'
     sao2['key'] = 'sao2'
-    measurements = measurements.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2, how = 'outer').merge(gcs, how = 'outer')
+    ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2, how = 'outer').merge(gcs, how = 'outer')
 
-    measurements = measurements.dropna()
+    # reindex and bin
+    ts_data = ts_data.dropna().apply(rein)
+    #ts_data
 
-    m = lab_data.copy()
-    #m = m[m['patientunitstayid'] < 200000]
-    m = m[m['offset'] < 1440]
-    m['offsetBin'] = (m['offset']/summarization_int).astype(int)
-    m = m.drop('offset', axis = 1)
-    measures_grouped = m.groupby(['patientunitstayid', 'offsetBin', 'key']).mean().reset_index()
-    m2 = measures_grouped.copy()
-
-    #TODO use parallel processing here to speed up
-    m2 = m2.groupby(['patientunitstayid', 'key']).apply(rein)
-
-    m2 = m2.reset_index()
-    m2['pat_off'] = m2['patientunitstayid'].astype(str) + '_' + m2['offsetBin'].astype(str)
-    m2 = m2.pivot(index='pat_off', columns='key', values='value')
-
-    return m2
+    return ts_data, lab_data
