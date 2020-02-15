@@ -1,5 +1,6 @@
 # IMPORTS
 import pandas as pd
+import numpy as np
 import argparse
 import os
 
@@ -14,7 +15,11 @@ def get_physiology(data_dir, hr_filename, resp_filename, sao2_filename):
     resp['offset'] = resp['offset'] / 60
     sao2['offset'] = sao2['offset'] / 60
 
-    # drop nan rows (no need to interpolate here if we are interpolating when binning)
+    hr = hr[hr['offset'] < 24]
+    resp = resp[resp['offset'] < 24]
+    sao2 = sao2[sao2['offset'] < 24]
+
+    # drop nan rows
     hr = hr.dropna()
     resp = resp.dropna()
     sao2 = sao2.dropna()
@@ -22,21 +27,36 @@ def get_physiology(data_dir, hr_filename, resp_filename, sao2_filename):
     return hr, resp, sao2
 
 def get_motor_gcs(gcs_filename):
+    # read file
     gcs = pd.read_csv(gcs_filename)
-    gcs = gcs[gcs['observationoffset'] > -1]
-    gcs['observationoffset'] = gcs['observationoffset'] / 60
-    final_gcs_id = gcs.groupby('patientunitstayid')['observationoffset'].transform(max) == gcs['observationoffset']
 
-    final_gcs = gcs[final_gcs_id]
+    # drop invalids
+    gcs = gcs[gcs['observationoffset'] > -1]
+
+    # convert offset to hours
+    gcs['observationoffset'] = gcs['observationoffset'] / 60
+
+    # get final gcs
+    final_gcs_id = gcs.groupby('patientunitstayid')['observationoffset'].transform(max) == gcs['observationoffset']
+    final_gcs = gcs[final_gcs_id][['patientunitstayid', 'Value']]
+
+    # drop measurements outside first 24 hours
+    gcs = gcs[gcs['observationoffset'] < 24]
+
+    # transform gcs to have same labels as other time series data
+    gcs = gcs.rename(columns={'Key': 'key', 'Value': 'value', 'observationoffset': 'offset'})
+
+    # drop nan rows
+    gcs = gcs.dropna()
 
     return gcs, final_gcs
 
 def get_lab_data(lab_filename):
     # Loading lab data
-    lab = pd.read_csv('data/lab_data.csv')
+    lab_data = pd.read_csv('data/lab_data.csv')
 
     # drop rows that are irrelevant (< -1) or outside of first 24 hours
-    lab = lab.loc[lab['labresultoffset'] > -1]
+    lab_data = lab_data.loc[lab_data['labresultoffset'] > -1]
     lab_data = lab_data.loc[lab_data['labresultoffset'] <= 24*60]
 
     # extract relevant and rename columns
@@ -64,7 +84,6 @@ def get_lab_data(lab_filename):
 
     return lab_counts, lab_avgs
 
-
 def get_demographics(dem_filename):
     # Loading demographic data
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
@@ -86,8 +105,8 @@ def get_demographics(dem_filename):
             'Other ICU (CABG)': 2, 'Acute Care/Floor': 2, 'Telemetry': 1, 'Operating Room': 1,
             'Death': 0, 'Other': np.nan}
 
-    discharge_location = demographic_all.loc[:, ['patientunitstayid',
-        'unitdischargeoffset', 'unitdischargelocation']]
+    discharge_location = demographic_all.loc[:, ['patientunitstayid', 'unitdischargeoffset',
+        'unitdischargelocation']]
     discharge_location['unitdischargelocation'].replace(replace_dict, inplace=True)
     discharge_location.drop_duplicates()
 
@@ -134,20 +153,134 @@ def get_infusion(inf_filename):
 
     return infusiontypedata
 
-def rein(df):
-    df = df.set_index('offsetBin')
-    df = df.drop(['patientunitstayid', 'key'], axis = 1)
-    return df.reindex(np.arange(24)).fillna(method = 'ffill').fillna(method = 'bfill')
 
-def get_processed_data(summarization_int, hr, resp, sao2, lab_data, med_data, inf_data):
-    ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
-    hr['key'] = 'hr'
-    resp['key'] = 'resp'
-    sao2['key'] = 'sao2'
-    ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2, how = 'outer').merge(gcs, how = 'outer')
+'''Wrapper for getting processed data, if we need to reload we do so here'''
+def get_processed_data(summarization_int, processed_loc, rld, rebin, data_dir):
+    # populate all the dataframes
+    if not rld:
+        hr = pd.read_csv(os.path.join(processed_loc, 'hr.csv'))
+        resp = pd.read_csv(os.path.join(processed_loc, 'resp.csv'))
+        sao2 = pd.read_csv(os.path.join(processed_loc, 'sao2.csv'))
+        gcs = pd.read_csv(os.path.join(processed_loc, 'gcs.csv'))
+        final_gcs = pd.read_csv(os.path.join(processed_loc, 'final_gcs.csv'))
+        lab_data_cts = pd.read_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
+        lab_data_avgs = pd.read_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
+        mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_data.csv'))
+        dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_data.csv'))
+        discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_data.csv'))
+        medication_data = pd.read_csv(os.path.join(processed_loc,
+            'medication_data.csv'))
+        infusion_data = pd.read_csv(os.path.join(processed_loc,
+            'infusion_data.csv'))
 
-    # reindex and bin
-    ts_data = ts_data.dropna().apply(rein)
-    print(ts_data)
+    else:
+        hr, resp, sao2 = get_physiology(data_dir, 'alpaca_hr.csv',
+                'alpaca_resp.csv', 'alpaca_sao2.csv')
+        gcs, final_gcs = get_motor_gcs(os.path.join(data_dir, 'patient_motor.csv'))
+        lab_data_cts, lab_data_avgs = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
+        mort_data, dem_data, discharge_data = get_demographics(os.path.join(data_dir,
+            'patient_demographics_data.csv'))
+        medication_data = get_medication(os.path.join(data_dir,
+            'medication_data_long_query.csv'))
+        infusion_data = get_infusion(os.path.join(data_dir,
+            'infusion_data_long_query.csv'))
 
-    return ts_data, lab_data
+        # save all the dataframes
+        hr.to_csv(os.path.join(processed_loc, 'hr.csv'))
+        resp.to_csv(os.path.join(processed_loc, 'resp.csv'))
+        sao2.to_csv(os.path.join(processed_loc, 'sao2.csv'))
+        gcs.to_csv(os.path.join(processed_loc, 'gcs.csv'))
+        final_gcs.to_csv(os.path.join(processed_loc, 'final_gcs.csv'))
+        lab_data_cts.to_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
+        lab_data_avgs.to_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
+        mort_data.to_csv(os.path.join(processed_loc, 'mort_data.csv'))
+        dem_data.to_csv(os.path.join(processed_loc, 'dem_data.csv'))
+        discharge_data.to_csv(os.path.join(processed_loc, 'discharge_data.csv'))
+        medication_data.to_csv(os.path.join(processed_loc, 'medication_data.csv'))
+        infusion_data.to_csv(os.path.join(processed_loc, 'infusion_data.csv'))
+
+    if rebin:
+        # create dataframe to hold all time series data
+        ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
+        hr['key'] = 'hr'
+        resp['key'] = 'resp'
+        sao2['key'] = 'sao2'
+        gcs['key'] = 'gcs'
+        ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2,
+                how = 'outer').merge(gcs, how = 'outer')
+
+        # drop extra columns, nan rows
+        ts_data = ts_data.drop(columns=['origin']).dropna()
+
+        # calculate bins, drop offset, calculate bin avg
+        ts_data['offset_bin'] = ts_data['offset'] // summarization_int
+        ts_data = ts_data.drop(columns=['offset'])
+        ts_data = ts_data.groupby(['patientunitstayid', 'offset_bin', 'key']).mean().reset_index()
+
+        # function to reindex dataframe (ensure we have all bins)
+        def rein(df):
+            num_bins = 24 // summarization_int
+            if num_bins != 24:
+                print(num_bins, summarization_int)
+            df = df.set_index('offset_bin')
+            df = df.drop(['patientunitstayid', 'key'], axis = 1)
+            return df.reindex(index=np.arange(num_bins).astype(int))
+
+        # set bin as index and reindex
+        ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
+        ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(rein).reset_index()
+
+        # fill missing bins, drop patients with no measurements for any of the features
+        ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(lambda x: x.fillna(method='bfill').fillna(method='ffill')).reset_index()
+        ts_data = ts_data.pivot_table(index=['patientunitstayid', 'offset_bin'],
+                columns='key', values='value').dropna().reset_index()
+
+        # get patient list - requires getting common patients across all df
+        ts_patients = ts_data[['patientunitstayid']]
+        lab_patients = lab_data_cts[['patientunitstayid']]
+        medication_patients = medication_data[['patientunitstayid']]
+        infusion_patients = infusion_data[['patientunitstayid']]
+
+        patient_list = ts_data[['patientunitstayid']].drop_duplicates().reset_index()
+
+        # order the rest of the data by the patient order in patient list
+        ts_data = patient_list.merge(ts_data, how='left')
+        lab_data_cts = patient_list.merge(lab_data_cts, how='left')
+        lab_data_avgs = patient_list.merge(lab_data_avgs, how='left')
+        medication_data = patient_list.merge(medication_data, how='left')
+        infusion_data = patient_list.merge(infusion_data, how='left')
+
+        # now fill nan in lab data, fill avgs with median, cts with 0
+        lab_data_cts = lab_data_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+        lab_data_avgs = lab_data_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+        lab_data = pd.concat([lab_data_cts, lab_data_avgs], axis=1)
+
+        # now fill nan in medication data
+        medication_data = medication_data.fillna(0)
+
+        # now fill nan in infusion data
+        infusion_data = infusion_data.fillna(0)
+
+        ts_data.to_csv(os.path.join(data_dir, 'processed', 'binned', 'ts_binned.csv'))
+        lab_data.to_csv(os.path.join(data_dir, 'processed', 'binned', 'lab_binned.csv'))
+        medication_data.to_csv(os.path.join(data_dir, 'processed', 'binned',
+            'medication_binned.csv'))
+        infusion_data.to_csv(os.path.join(data_dir, 'processed', 'binned',
+            'infusion_binned.csv'))
+
+    else:
+        ts_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned', 'ts_binned.csv'))
+        lab_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned', 'lab_binned.csv'))
+        medication_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned',
+            'medication_binned.csv'))
+        infusion_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned',
+            'infusion_binned.csv'))
+
+        # get patient list and put into dataframe
+        patient_list = pd.DataFrame(columns=['patientunitstayid'])
+        patient_list['patientunitstayid'] = ts_data.patientunitstayid.unique()
+
+    # finally, order gcs
+    final_gcs = patient_list.merge(final_gcs, how='left')
+
+    return ts_data, lab_data, medication_data, infusion_data, final_gcs
