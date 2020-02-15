@@ -80,7 +80,6 @@ def get_lab_data(lab_filename):
     # drop labs that <80% of patients get
     lab_counts = lab_counts[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
     lab_avgs = lab_avgs[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
-    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()))
 
     return lab_counts, lab_avgs
 
@@ -152,7 +151,6 @@ def get_infusion(inf_filename):
     infusiontypedata = infusiontypedata.fillna(0)
 
     return infusiontypedata
-
 
 '''Wrapper for getting processed data, if we need to reload we do so here'''
 def get_processed_data(summarization_int, processed_loc, rld, rebin, data_dir):
