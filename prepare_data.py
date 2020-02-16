@@ -98,11 +98,18 @@ def get_demographics(dem_filename):
     demographic = demographic.replace('> 89', 90)
 
     # get discharge location (to use as labels)
-    replace_dict = {'Home': 6, 'Skilled Nursing Facility': 5, 'Nursing Home': 5,
-            'Rehabilitation': 5, 'Other External': 5, 'Floor': 4, 'Other Internal': 4,
-            'Step-Down Unit (SDU)': 3, 'Other Hospital': 3, 'ICU': 2, 'Other ICU': 2,
-            'Other ICU (CABG)': 2, 'Acute Care/Floor': 2, 'Telemetry': 1, 'Operating Room': 1,
-            'Death': 0, 'Other': np.nan}
+#    replace_dict = {'Home': 6, 'Skilled Nursing Facility': 5, 'Nursing Home': 5,
+#            'Rehabilitation': 5, 'Other External': 5, 'Floor': 4, 'Other Internal': 4,
+#            'Step-Down Unit (SDU)': 3, 'Other Hospital': 3, 'ICU': 2, 'Other ICU': 2,
+#            'Other ICU (CABG)': 2, 'Acute Care/Floor': 2, 'Telemetry': 1, 'Operating Room': 1,
+#            'Death': 0, 'Other': np.nan}
+    replace_dict = {'Home': 2, 'Rehabilitation': 1,
+            'Skilled Nursing Facility': 0, 'Nursing Home': 0,'Death': 0,
+            'Other External': np.nan, 'Floor': np.nan, 'Other Internal': np.nan,
+            'Step-Down Unit (SDU)': np.nan, 'Other Hospital': np.nan,
+            'ICU': np.nan, 'Other ICU': np.nan, 'Other ICU (CABG)': np.nan,
+            'Acute Care/Floor': np.nan, 'Telemetry': np.nan, 'Operating Room': np.nan,
+            'Other': np.nan}
 
     discharge_location = demographic_all.loc[:, ['patientunitstayid', 'unitdischargeoffset',
         'unitdischargelocation']]
