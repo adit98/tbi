@@ -15,6 +15,7 @@ def get_physiology(data_dir, hr_filename, resp_filename, sao2_filename):
     resp['offset'] = resp['offset'] / 60
     sao2['offset'] = sao2['offset'] / 60
 
+    # drop data after 24 hrs
     hr = hr[hr['offset'] < 24]
     resp = resp[resp['offset'] < 24]
     sao2 = sao2[sao2['offset'] < 24]
@@ -105,27 +106,9 @@ def get_lab_data(lab_filename):
 
     # extract relevant and rename columns
     lab_data = lab_data[['patientunitstayid', 'labresultoffset', 'labname', 'labresult']]
-    lab_data.rename({'labresultoffset':'offset'})
+    lab_data.rename({'labresultoffset': 'offset'})
 
-    # pivot so that each column is a lab
-    lab_data_piv = pd.pivot_table(lab_data, index=['patientunitstayid',
-        'labresultoffset'], columns='labname', values = 'labresult').reset_index()
-
-    # TODO exclude missing lab features after selecting the correct patient set
-
-    # get counts of each lab for each patient
-    lab_counts = lab_data_piv.groupby('patientunitstayid').count().reset_index()
-    lab_counts = lab_counts.drop(columns=['labresultoffset'])
-
-    # get avg lab value for each patient
-    lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
-    lab_avgs = lab_avgs.drop(columns=['labresultoffset'])
-
-    # drop labs that <80% of patients get
-    lab_counts = lab_counts[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
-    lab_avgs = lab_avgs[lab_counts.columns[lab_counts.sum() > lab_counts.shape[0] * 4 / 5]]
-
-    return lab_counts, lab_avgs
+    return lab_data
 
 def get_demographics(dem_filename):
     # Loading demographic data
@@ -141,12 +124,8 @@ def get_demographics(dem_filename):
 
     demographic = demographic.replace('> 89', 90)
 
+    # TODO use the other column for discharge location (ask Han)
     # get discharge location (to use as labels)
-#    replace_dict = {'Home': 6, 'Skilled Nursing Facility': 5, 'Nursing Home': 5,
-#            'Rehabilitation': 5, 'Other External': 5, 'Floor': 4, 'Other Internal': 4,
-#            'Step-Down Unit (SDU)': 3, 'Other Hospital': 3, 'ICU': 2, 'Other ICU': 2,
-#            'Other ICU (CABG)': 2, 'Acute Care/Floor': 2, 'Telemetry': 1, 'Operating Room': 1,
-#            'Death': 0, 'Other': np.nan}
     replace_dict = {'Home': 2, 'Rehabilitation': 1,
             'Skilled Nursing Facility': 0, 'Nursing Home': 0,'Death': 0,
             'Other External': np.nan, 'Floor': np.nan, 'Other Internal': np.nan,
@@ -162,168 +141,245 @@ def get_demographics(dem_filename):
 
     return died, demographic, discharge_location
 
-def get_medication(med_filename):
-    # Loading medication data
-    medication_all = pd.read_csv(med_filename)
-    medtypes = list(medication_all['drugname'].drop_duplicates().dropna())
+def process_ts(hr, resp, sao2, gcs, summarization_int=1):
+    # put all the ts data into the same dataframe
+    ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
+    hr['key'] = 'hr'
+    resp['key'] = 'resp'
+    sao2['key'] = 'sao2'
+    gcs['key'] = 'gcs'
+    ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2,
+            how = 'outer').merge(gcs, how = 'outer')
 
-    # Getting table of indicator variables for each patient
-    m = medtypes[0]
-    medtypedata = medication_all[medication_all['drugname'] == m][['patientunitstayid']].drop_duplicates()#, 'frequency']]
-    indicator = np.ones((medtypedata.shape[0], 1))
-    medtypedata[m] = indicator
-    for m in medtypes[1:]:
-        medtypedata1 = medication_all[medication_all['drugname'] == m][['patientunitstayid']].drop_duplicates()
-        indicator = np.ones((medtypedata1.shape[0], 1))
-        medtypedata1[m] = indicator
-        medtypedata = medtypedata.merge(medtypedata1, how='outer', on='patientunitstayid')
+    # drop extra columns, nan rows
+    ts_data = ts_data.drop(columns=['origin']).dropna()
 
-    medtypedata = medtypedata.fillna(0)
+    # calculate bins, drop offset, calculate bin avg
+    ts_data['offset_bin'] = ts_data['offset'] // summarization_int
+    ts_data = ts_data.drop(columns=['offset'])
+    ts_data = ts_data.groupby(['patientunitstayid', 'offset_bin', 'key']).mean().reset_index()
 
-    return medtypedata
+    # function to reindex dataframe (ensure we have all bins)
+    def rein(df):
+        num_bins = 24 // summarization_int
+        df = df.set_index('offset_bin')
+        df = df.drop(['patientunitstayid', 'key'], axis = 1)
+        return df.reindex(index=np.arange(num_bins).astype(int))
 
-def get_infusion(inf_filename):
-    # Loading infusion data
-    infusion_all = pd.read_csv(inf_filename)
-    infusiontypes = list(infusion_all['drugname'].drop_duplicates().dropna())
+    # set bin as index and reindex
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
+    ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(rein).reset_index()
 
-    # Getting table of indicator variables for each patient
-    i = infusiontypes[0]
-    infusiontypedata = infusion_all[infusion_all['drugname'] == i][['patientunitstayid']].drop_duplicates()
-    indicator = np.ones((infusiontypedata.shape[0], 1))
-    infusiontypedata[i] = indicator
+    # fill missing bins, drop patients with no measurements for any of the features
+    ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(lambda x: x.fillna(method='bfill').fillna(method='ffill')).reset_index()
+    ts_data = ts_data.pivot_table(index=['patientunitstayid', 'offset_bin'],
+            columns='key', values='value').dropna().reset_index()
 
-    for i in infusiontypes[1:]:
-        infusiontypedata1 = infusion_all[infusion_all['drugname'] == i][['patientunitstayid']].drop_duplicates()
-        indicator = np.ones((infusiontypedata1.shape[0], 1))
-        infusiontypedata1[i] = indicator
-        infusiontypedata = infusiontypedata.merge(infusiontypedata1, how='outer', on='patientunitstayid')
+    return ts_data
 
-    infusiontypedata = infusiontypedata.fillna(0)
+def process_lab(lab_data):
+    # pivot so that each column is a lab
+    lab_data_piv = pd.pivot_table(lab_data, index=['patientunitstayid',
+        'labresultoffset'], columns='labname', values = 'labresult').reset_index()
+    lab_data_piv = lab_data_piv.drop(columns=['labresultoffset'])
 
-    return infusiontypedata
+    # get counts of each lab for each patient
+    lab_cts = lab_data_piv.groupby('patientunitstayid').count().reset_index()
+
+    # get avg lab value for each patient
+    lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
+
+    # drop labs that <80% of patients get
+    lab_cts = lab_cts[lab_cts.columns[lab_cts.sum() > lab_cts.shape[0] * 4 / 5]]
+    lab_avgs = lab_avgs[lab_cts.columns[lab_cts.sum() > lab_cts.shape[0] * 4 / 5]]
+
+    # fill patients missing labs with 0s
+    lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+
+    #TODO check this assumption
+    # fill patients' missing lab values with avg value of that lab
+    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()),
+            axis=1).drop(columns=['patientunitstayid'])
+    lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+
+    return lab_data
+
+def process_infusion(inf_data):
+    # helper function to get longest word in infusion drug name (avoid duplicates)
+    def get_long_boy(df):
+        df = df.apply(lambda x: x.strip().split())
+        def list_argmax(l):
+            return l.index(max(l))
+
+        longest_word = df.apply(list_argmax).values
+        for ind in range(len(df)):
+            df.iloc[ind] = df.iloc[ind][longest_word[ind]]
+        return df
+
+    # modify infusion names (fix typos and dupes)
+    inf_data = inf_data[['patientunitstayid', 'drugname', 'drugrate']].drop_duplicates()
+    inf_data['drugname'] = inf_data['drugname'].str.replace("-", " ")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("(", " ")
+    inf_data['drugname'] = inf_data['drugname'].str.replace(")", " ")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("/", " ")
+    inf_data['drugname'] = inf_data['drugname'].str.lower()
+    inf_data['drugname'] = inf_data['drugname'].str.replace("nacl", "sodium")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("na", "sodium")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("sodiumnograms", "sodium")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("without", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("volume", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("products", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("nanograms", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("units", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("premix", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("unknown", "other")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("other", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("platelet", "platelets")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("plateletss", "platelets")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("prbcs", "prbc")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("transfuse", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("transfusion", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("tranexamic", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("transexamic", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("transeximic", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("tranxemic", "")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("versed", "midazolam")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("pca", "patientcontrolledanesthesia")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("pcea", "patientcontrolledanesthesia")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("sublimaze", "fentanyl")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("vasoactives", "vasopressin")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("tazo", "zosyn")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("zosyn", "piperacillin")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("precedex", "dexmedetomidine")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("pprbc", "redbloodcell")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("prbc", "redbloodcell")
+    inf_data['drugname'] = inf_data['drugname'].str.replace("rbc", "redbloodcell")
+
+    # apply helper function
+    inf_data['drugname'] = get_long_boy(inf_data['drugname'])
+
+    # drop nan rows and set values to 1 or 0
+    inf_data = inf_data.dropna()
+    inf_data['drugrate'] = 1
+
+    # pivot infusion names to columns
+    inf_data = pd.pivot_table(inf_data, index=['patientunitstayid'], columns=['drugname'], values=['drugrate']).reset_index()
+
+    # get rid of multiindex
+    inf_data.columns = inf_data.columns.droplevel(0)
+    inf_data = inf_data.rename(columns={'': 'patientunitstayid'})
+
+    # drop extraneous columns
+    inf_data = inf_data.drop(columns=['w', 'with', 'mg', 'ml', 'mcg', 'plt', 'min', 'mvi', 'ns', 'nss', 'std', 'hr', 'kg', 'tf', 'tko'])
+    inf_data = inf_data.fillna(0)
+
+    # keep columns where more than 1% of patients got infusion
+    inf_data = inf_data[inf_data.columns[inf_data.mean() > 0.01]]
+
+    return inf_data
+
+def process_medication(med_data):
+    # select relevant columns
+    med_data = med_data[['patientunitstayid', 'dosage', 'gtc']].dropna().drop_duplicates()
+
+    # set values to 0/1
+    med_data['dosage'] = 1
+
+    # pivot lab names
+    med_data = pd.pivot_table(med_data, index=['patientunitstayid'], columns='gtc')
+    med_data = med_data.fillna(0).reset_index()
+
+    # get rid of multiindex
+    med_data.columns = med_data.columns.droplevel(0)
+    med_data = med_data.rename(columns={'': 'patientunitstayid'})
+
+    # keep columns where more than 20% of patients got medication
+    med_data = med_data[med_data.columns[med_data.mean() > 0.2]]
+
+    return med_data
 
 '''Wrapper for getting processed data, if we need to reload we do so here'''
-def get_processed_data(summarization_int, processed_loc, rld, rebin, data_dir):
-    # populate all the dataframes
+def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int=1):
+    # load data from individual component files if available
     if not rld:
-        hr = pd.read_csv(os.path.join(processed_loc, 'hr.csv'))
-        resp = pd.read_csv(os.path.join(processed_loc, 'resp.csv'))
-        sao2 = pd.read_csv(os.path.join(processed_loc, 'sao2.csv'))
-        gcs = pd.read_csv(os.path.join(processed_loc, 'gcs.csv'))
-        final_gcs = pd.read_csv(os.path.join(processed_loc, 'final_gcs.csv'))
-        lab_data_cts = pd.read_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
-        lab_data_avgs = pd.read_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
-        mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_data.csv'))
-        dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_data.csv'))
-        discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_data.csv'))
-        medication_data = pd.read_csv(os.path.join(processed_loc,
-            'medication_data.csv'))
-        infusion_data = pd.read_csv(os.path.join(processed_loc,
-            'infusion_data.csv'))
+        hr = pd.read_csv(os.path.join(loaded_loc, 'hr.csv'))
+        resp = pd.read_csv(os.path.join(loaded_loc, 'resp.csv'))
+        sao2 = pd.read_csv(os.path.join(loaded_loc, 'sao2.csv'))
+        gcs = pd.read_csv(os.path.join(loaded_loc, 'gcs.csv'))
+        final_gcs = pd.read_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
+        lab_data = pd.read_csv(os.path.join(loaded_loc, 'lab_data.csv'))
+        mort_data = pd.read_csv(os.path.join(loaded_loc, 'mort_data.csv'))
+        dem_data = pd.read_csv(os.path.join(loaded_loc, 'dem_data.csv'))
+        discharge_data = pd.read_csv(os.path.join(loaded_loc, 'discharge_data.csv'))
 
     else:
         hr, resp, sao2 = get_physiology(data_dir, 'alpaca_hr.csv',
                 'alpaca_resp.csv', 'alpaca_sao2.csv')
         gcs, final_gcs = get_motor_gcs(os.path.join(data_dir, 'patient_motor.csv'))
-        lab_data_cts, lab_data_avgs = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
+        lab_data = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
         mort_data, dem_data, discharge_data = get_demographics(os.path.join(data_dir,
             'patient_demographics_data.csv'))
-        medication_data = get_medication(os.path.join(data_dir,
-            'medication_data_long_query.csv'))
-        infusion_data = get_infusion(os.path.join(data_dir,
-            'infusion_data_long_query.csv'))
 
-        # save all the dataframes
-        hr.to_csv(os.path.join(processed_loc, 'hr.csv'))
-        resp.to_csv(os.path.join(processed_loc, 'resp.csv'))
-        sao2.to_csv(os.path.join(processed_loc, 'sao2.csv'))
-        gcs.to_csv(os.path.join(processed_loc, 'gcs.csv'))
-        final_gcs.to_csv(os.path.join(processed_loc, 'final_gcs.csv'))
-        lab_data_cts.to_csv(os.path.join(processed_loc, 'lab_data_cts.csv'))
-        lab_data_avgs.to_csv(os.path.join(processed_loc, 'lab_data_avgs.csv'))
-        mort_data.to_csv(os.path.join(processed_loc, 'mort_data.csv'))
-        dem_data.to_csv(os.path.join(processed_loc, 'dem_data.csv'))
-        discharge_data.to_csv(os.path.join(processed_loc, 'discharge_data.csv'))
-        medication_data.to_csv(os.path.join(processed_loc, 'medication_data.csv'))
-        infusion_data.to_csv(os.path.join(processed_loc, 'infusion_data.csv'))
+        # save data that we split into individual components
+        hr.to_csv(os.path.join(loaded_loc, 'hr.csv'))
+        resp.to_csv(os.path.join(loaded_loc, 'resp.csv'))
+        sao2.to_csv(os.path.join(loaded_loc, 'sao2.csv'))
+        gcs.to_csv(os.path.join(loaded_loc, 'gcs.csv'))
+        final_gcs.to_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
+        lab_data.to_csv(os.path.join(loaded_loc, 'lab_data.csv'))
+        mort_data.to_csv(os.path.join(loaded_loc, 'mort_data.csv'))
+        dem_data.to_csv(os.path.join(loaded_loc, 'dem_data.csv'))
+        discharge_data.to_csv(os.path.join(loaded_loc, 'discharge_data.csv'))
 
-    if rebin:
+    if reprocess:
+        # load raw med and infusion data
+        medication_data = pd.read_csv(os.path.join(data_dir, 'medication_data_long_query.csv'),
+                low_memory=False)
+        infusion_data = pd.read_csv(os.path.join(data_dir, 'infusion_data_long_query.csv'),
+                low_memory=False)
+
         # create dataframe to hold all time series data
-        ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
-        hr['key'] = 'hr'
-        resp['key'] = 'resp'
-        sao2['key'] = 'sao2'
-        gcs['key'] = 'gcs'
-        ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2,
-                how = 'outer').merge(gcs, how = 'outer')
+        ts_data = process_ts(hr, resp, sao2, gcs)
 
-        # drop extra columns, nan rows
-        ts_data = ts_data.drop(columns=['origin']).dropna()
+        # process and reduce dimensionality of infusion and medication data
+        # TODO figure out if this step can be placed where we do the second fillna
+        medication_data = process_medication(medication_data)
+        infusion_data = process_infusion(infusion_data)
+        lab_data = process_lab(lab_data)
 
-        # calculate bins, drop offset, calculate bin avg
-        ts_data['offset_bin'] = ts_data['offset'] // summarization_int
-        ts_data = ts_data.drop(columns=['offset'])
-        ts_data = ts_data.groupby(['patientunitstayid', 'offset_bin', 'key']).mean().reset_index()
-
-        # function to reindex dataframe (ensure we have all bins)
-        def rein(df):
-            num_bins = 24 // summarization_int
-            if num_bins != 24:
-                print(num_bins, summarization_int)
-            df = df.set_index('offset_bin')
-            df = df.drop(['patientunitstayid', 'key'], axis = 1)
-            return df.reindex(index=np.arange(num_bins).astype(int))
-
-        # set bin as index and reindex
-        ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
-        ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(rein).reset_index()
-
-        # fill missing bins, drop patients with no measurements for any of the features
-        ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(lambda x: x.fillna(method='bfill').fillna(method='ffill')).reset_index()
-        ts_data = ts_data.pivot_table(index=['patientunitstayid', 'offset_bin'],
-                columns='key', values='value').dropna().reset_index()
-
-        # get patient list - requires getting common patients across all df
-        ts_patients = ts_data[['patientunitstayid']]
-        lab_patients = lab_data_cts[['patientunitstayid']]
-        medication_patients = medication_data[['patientunitstayid']]
-        infusion_patients = infusion_data[['patientunitstayid']]
-
+        # get patient list - we include all patients from ts_data
+        # TODO in future, remove patients with <24 hrs using demographic data
         patient_list = ts_data[['patientunitstayid']].drop_duplicates().reset_index()
 
         # order the rest of the data by the patient order in patient list
         ts_data = patient_list.merge(ts_data, how='left')
-        lab_data_cts = patient_list.merge(lab_data_cts, how='left')
-        lab_data_avgs = patient_list.merge(lab_data_avgs, how='left')
+        lab_data = patient_list.merge(lab_data, how='left')
         medication_data = patient_list.merge(medication_data, how='left')
         infusion_data = patient_list.merge(infusion_data, how='left')
 
-        # now fill nan in lab data, fill avgs with median, cts with 0
-        lab_data_cts = lab_data_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
-        lab_data_avgs = lab_data_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
-        lab_data = pd.concat([lab_data_cts, lab_data_avgs], axis=1)
-
-        # now fill nan in medication data
+        # fill the rest of the patients indicator variables with 0s
         medication_data = medication_data.fillna(0)
 
-        # now fill nan in infusion data
+        # fill the rest of the patients indicator variables with 0s
         infusion_data = infusion_data.fillna(0)
 
-        ts_data.to_csv(os.path.join(data_dir, 'processed', 'binned', 'ts_binned.csv'))
-        lab_data.to_csv(os.path.join(data_dir, 'processed', 'binned', 'lab_binned.csv'))
-        medication_data.to_csv(os.path.join(data_dir, 'processed', 'binned',
-            'medication_binned.csv'))
-        infusion_data.to_csv(os.path.join(data_dir, 'processed', 'binned',
-            'infusion_binned.csv'))
+        # fill the rest of the patients lab data
+        lab_cts = lab_data.iloc[:, :lab_data.shape[0]//2]
+        lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+        lab_avgs = lab_data.iloc[:, lab_data.shape[0]//2:]
+        lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+        lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+
+        ts_data.to_csv(os.path.join(processed_loc, 'ts_processed.csv'))
+        lab_data.to_csv(os.path.join(processed_loc, 'lab_processed.csv'))
+        medication_data.to_csv(os.path.join(processed_loc, 'medication_processed.csv'))
+        infusion_data.to_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
 
     else:
-        ts_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned', 'ts_binned.csv'))
-        lab_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned', 'lab_binned.csv'))
-        medication_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned',
-            'medication_binned.csv'))
-        infusion_data = pd.read_csv(os.path.join(data_dir, 'processed', 'binned',
-            'infusion_binned.csv'))
+        ts_data = pd.read_csv(os.path.join(processed_loc, 'ts_processed.csv'))
+        lab_data = pd.read_csv(os.path.join(processed_loc, 'lab_processed.csv'))
+        medication_data = pd.read_csv(os.path.join(processed_loc, 'medication_processed.csv'))
+        infusion_data = pd.read_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
 
         # get patient list and put into dataframe
         patient_list = pd.DataFrame(columns=['patientunitstayid'])
@@ -331,5 +387,19 @@ def get_processed_data(summarization_int, processed_loc, rld, rebin, data_dir):
 
     # finally, order gcs
     final_gcs = patient_list.merge(final_gcs, how='left')
+
+    # drop unnamed columns
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
+    lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^Unnamed')]
+    infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^Unnamed')]
+    medication_data = medication_data.loc[:, ~medication_data.columns.astype(str).str.contains('^Unnamed')]
+    final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^Unnamed')]
+
+    # drop offset columns
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^offset_bin')]
+    lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^offset_bin')]
+    medication_data = medication_data.loc[:, ~medication_data.columns.astype(str).str.contains('^offset_bin')]
+    infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset_bin')]
+    final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^offset_bin')]
 
     return ts_data, lab_data, medication_data, infusion_data, final_gcs
