@@ -209,7 +209,7 @@ def score(X_train, y_train, X_test, y_test, clf):
     y_pred_train = clf.predict_proba(X_train)
     fpr, tpr, thresholds = roc_curve(y_train, y_pred_train[:, 0])
     best_thresh = thresholds[np.argmax(np.square(tpr) + np.square(1-fpr))]
-    auc = roc_auc_score(y_train, clf.predict(X_train))
+    auc = roc_auc_score(y_train, y_pred_train[:, 1])
 
     return train_score, test_score, best_thresh, auc, thresholds
 

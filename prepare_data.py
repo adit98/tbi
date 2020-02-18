@@ -190,8 +190,8 @@ def process_lab(lab_data):
     lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
 
     # drop labs that <80% of patients get
-    lab_cts = lab_cts[lab_cts.columns[lab_cts.sum() > lab_cts.shape[0] * 4 / 5]]
-    lab_avgs = lab_avgs[lab_cts.columns[lab_cts.sum() > lab_cts.shape[0] * 4 / 5]]
+    lab_cts = lab_cts[lab_cts.columns[lab_cts.mean() > 0.8]]
+    lab_avgs = lab_avgs[lab_cts.columns[lab_cts.mean() > 0.8]]
 
     # fill patients missing labs with 0s
     lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
