@@ -133,17 +133,31 @@ def extract_inf(X_inf_train, X_inf_test, method=None):
 
     raise NotImplementedError
 
-def get_labels(final_gcs = None, mort=False, mort_df = None):
+def extract_dem(X_dem_train, X_dem_test, method=None):
+    # scaler - fit, transform train data
+    dem_scaler = StandardScaler()
+    X_dem_train = dem_scaler.fit_transform(X_dem_train)
+
+    # transform test data
+    X_dem_test = dem_scaler.transform(X_dem_test)
+
+    if method is None:
+        return X_dem_train, X_dem_test
+
+    raise NotImplementedError
+
+# TODO fix this to work with different labels
+def get_labels(y_gcs = None, mort=False, mort_df = None):
     if mort:
         if mort_df is None:
             raise ValueError("Must supply mort_df")
         
         raise NotImplementedError
     
-    if final_gcs is None:
-        raise ValueError("Must supply final_gcs")
+    if y_gcs is None:
+        raise ValueError("Must supply y_gcs")
     
-    y = final_gcs['Value'].values
+    y = y_gcs['Value'].values
 
     # modify labels (positive (1) is bad outcome (GCS < 6))
     y[y < 6] = 1
@@ -151,6 +165,7 @@ def get_labels(final_gcs = None, mort=False, mort_df = None):
 
     return y
 
+# TODO also fix this to work with different labels
 def resample_data(X_train, y_train, mort=False, method='over'):
     if method == 'over':
         if mort:
@@ -192,7 +207,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
         raise ValueError("method must be over or under")
 
     return X_train, y_train
-        
+
+# TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
         clf = LogisticRegression(max_iter=2000, penalty='elasticnet', l1_ratio=0.5,
@@ -214,15 +230,21 @@ def score(X_train, y_train, X_test, y_test, clf):
     return train_score, test_score, best_thresh, auc, thresholds
 
 def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarization_int):
-    X_ts, X_lab, X_med, X_inf, final_gcs = get_processed_data(loaded_loc, processed_loc,
-            rld, reprocess, data_dir, summarization_int)
+    X_ts, X_lab, X_med, X_inf, X_dem, y_discharge, y_mort, y_gcs, patient_list \
+            = get_processed_data(loaded_loc, processed_loc, rld, reprocess,
+                    data_dir, summarization_int)
+
     num_bins = 24 // summarization_int
 
-    # get individual ts components, switch to numpy
-    X_hr = np.vstack(list(X_ts.groupby('patientunitstayid')['hr'].apply(np.hstack).values))
-    X_resp = np.vstack(list(X_ts.groupby('patientunitstayid')['resp'].apply(np.hstack).values))
-    X_sao2 = np.vstack(list(X_ts.groupby('patientunitstayid')['sao2'].apply(np.hstack).values))
-    X_gcs = np.vstack(list(X_ts.groupby('patientunitstayid')['gcs'].apply(np.hstack).values))
+    # get individual ts components and stack values horizontally
+    X_hr = X_ts[['patientunitstayid', 'offset_bin', 'hr']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='hr').values
+    X_resp = X_ts[['patientunitstayid', 'offset_bin', 'resp']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='resp').values
+    X_sao2 = X_ts[['patientunitstayid', 'offset_bin', 'sao2']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='sao2').values
+    X_gcs = X_ts[['patientunitstayid', 'offset_bin', 'gcs']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='gcs').values
 
     # put them back into ts numpy array
     X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs])
@@ -231,13 +253,16 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     X_lab = X_lab.iloc[:, 1:].values
     X_med = X_med.iloc[:, 1:].values
     X_inf = X_inf.iloc[:, 1:].values
+    X_dem = X_dem.iloc[:, 1:].values
 
     # combine all Xs to do train test split
     # save length of each component array for doing PCA every run
-    num_components = [X_ts.shape[1], X_lab.shape[1], X_med.shape[1], X_inf.shape[1]]
-    X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf])
+    num_components = [X_ts.shape[1], X_lab.shape[1], X_med.shape[1], X_inf.shape[1],
+            X_dem.shape[1]]
 
-    return X_stacked, final_gcs, num_components
+    X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem])
+
+    return X_stacked, y_gcs, num_components
 
 def main():
     # argument parser
@@ -246,9 +271,11 @@ def main():
             action='store_true')
     parser.add_argument('-p', '--reprocess', help="reprocess data", default=False,
             action='store_true')
-    parser.add_argument('-d', '--data_dir', help='path to data directory', default='data')
+    parser.add_argument('--data_dir', help='path to data directory', default='data')
     parser.add_argument('-n', '--num_runs', help='number of times to bootstrap', default=10)
     parser.add_argument('-s', '--summarization_int', help='binning interval', default=1)
+    parser.add_argument('-d', '--debug', help="debug mode, don't write", default=False,
+            action='store_true')
     args = parser.parse_args()
 
     # check if loaded/processed dirs exist, check if any files are in them
@@ -256,24 +283,25 @@ def main():
     processed = os.path.exists(os.path.join(args.data_dir, 'loaded', 'processed'))
     results = os.path.exists('model_metrics')
 
-    if not existing:
-        # create dir
-        os.makedirs(os.path.join(args.data_dir, 'loaded'))
+    if not args.debug:
+        if not existing:
+            # create dir
+            os.makedirs(os.path.join(args.data_dir, 'loaded'))
 
-    elif not processed:
-        # create dir
-        os.makedirs(os.path.join(args.data_dir, 'loaded', 'processed'))
+        elif not processed:
+            # create dir
+            os.makedirs(os.path.join(args.data_dir, 'loaded', 'processed'))
 
-    if not results:
-        print("Now on Experiment: 1")
-        exp_num = 'exp1'
+        if not results:
+            print("Now on Experiment: 1")
+            exp_num = 'exp1'
 
-    else:
-        dir_contents = [f for f in os.listdir('model_metrics') if "exp" in f]
-        exp_nums = [int(i) for i in [re.findall(r'\d+', i)[0] for i in dir_contents]]
-        exp_num = max(exp_nums) + 1
-        print("Now on Experiment:", exp_num)
-        exp_num = 'exp' + str(exp_num)
+        else:
+            dir_contents = [f for f in os.listdir('model_metrics') if "exp" in f]
+            exp_nums = [int(i) for i in [re.findall(r'\d+', i)[0] for i in dir_contents]]
+            exp_num = max(exp_nums) + 1
+            print("Now on Experiment:", exp_num)
+            exp_num = 'exp' + str(exp_num)
 
     # if there are no files in the loaded dir, we still have to load data
     if len(os.listdir(os.path.join(args.data_dir, 'loaded'))) == 0:
@@ -290,9 +318,9 @@ def main():
     processed_dir = os.path.join(args.data_dir, 'loaded', 'processed')
     results_dir = 'model_metrics'
 
-    X_stacked, final_gcs, num_components = stack_data(args.reload, args.reprocess,
+    X_stacked, y_gcs, num_components = stack_data(args.reload, args.reprocess,
             loaded_dir, processed_dir, args.data_dir, args.summarization_int)
-    y = get_labels(final_gcs)
+    y = get_labels(y_gcs)
 
     # create lists to hold metrics across runs
     thresholds_all = []
@@ -349,7 +377,7 @@ def main():
         # get coefficients
         coeff_all.append(model.coef_)
 
-    # stack arrays and save
+    # stack arrays
     train_scores=np.vstack(train_scores)
     test_scores=np.vstack(test_scores)
     theta_all=np.vstack(theta_all)
@@ -360,14 +388,16 @@ def main():
     print("Test Score:", np.mean(test_scores))
     print("AUC:", np.mean(auc_all))
 
-    # make experiment dir
-    os.makedirs(os.path.join('model_metrics', exp_num))
+    if not args.debug:
+        # make experiment dir
+        os.makedirs(os.path.join('model_metrics', exp_num))
 
-    np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
-    np.save(os.path.join(results_dir, exp_num, 'test_scores.npy'), test_scores)
-    np.save(os.path.join(results_dir, exp_num, 'theta_all.npy'), theta_all)
-    np.save(os.path.join(results_dir, exp_num, 'auc_all.npy'), auc_all)
-    np.save(os.path.join(results_dir, exp_num, 'thresholds_all.npy'), thresholds_all)
+        # save files
+        np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
+        np.save(os.path.join(results_dir, exp_num, 'test_scores.npy'), test_scores)
+        np.save(os.path.join(results_dir, exp_num, 'theta_all.npy'), theta_all)
+        np.save(os.path.join(results_dir, exp_num, 'auc_all.npy'), auc_all)
+        np.save(os.path.join(results_dir, exp_num, 'thresholds_all.npy'), thresholds_all)
 
 if __name__ == "__main__":
     main()

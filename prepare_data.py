@@ -113,33 +113,7 @@ def get_lab_data(lab_filename):
 def get_demographics(dem_filename):
     # Loading demographic data
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
-
-    died = demographic_all.loc[:, ['patientunitstayid', 'unitdischargestatus']]
-    died['alive'] = died['unitdischargestatus'] == 'Alive'
-    died = died.drop_duplicates()
-
-    # Keeping the following columns (numerical for now)
-    to_keep = ['age', 'admissionheight', 'admissionweight', 'patientunitstayid']
-    demographic = demographic_all[to_keep]
-
-    demographic = demographic.replace('> 89', 90)
-
-    # TODO use the other column for discharge location (ask Han)
-    # get discharge location (to use as labels)
-    replace_dict = {'Home': 2, 'Rehabilitation': 1,
-            'Skilled Nursing Facility': 0, 'Nursing Home': 0,'Death': 0,
-            'Other External': np.nan, 'Floor': np.nan, 'Other Internal': np.nan,
-            'Step-Down Unit (SDU)': np.nan, 'Other Hospital': np.nan,
-            'ICU': np.nan, 'Other ICU': np.nan, 'Other ICU (CABG)': np.nan,
-            'Acute Care/Floor': np.nan, 'Telemetry': np.nan, 'Operating Room': np.nan,
-            'Other': np.nan}
-
-    discharge_location = demographic_all.loc[:, ['patientunitstayid', 'unitdischargeoffset',
-        'unitdischargelocation']]
-    discharge_location['unitdischargelocation'].replace(replace_dict, inplace=True)
-    discharge_location.drop_duplicates()
-
-    return died, demographic, discharge_location
+    return demographic_all
 
 def process_ts(hr, resp, sao2, gcs, summarization_int=1):
     # put all the ts data into the same dataframe
@@ -298,6 +272,68 @@ def process_medication(med_data):
 
     return med_data
 
+def process_dem(demographic):
+    # just get hospitaldischargelocation
+    died = demographic.loc[:, ['patientunitstayid', 'hospitaldischargelocation',
+        'unitdischargeoffset']]
+    died = died.drop_duplicates()
+
+    # drop patient stays where stay <24 hrs
+    died = died[died['unitdischargeoffset'] >= 24*60]
+
+    # make death integer
+    died['death'] = (died['hospitaldischargelocation'].str.lower() == 'death').astype(int)
+    died = died.drop(columns=['hospitaldischargelocation', 'unitdischargeoffset'])
+    died = died.drop_duplicates()
+
+    # Keeping the following columns (numerical for now)
+    to_keep = ['patientunitstayid', 'age', 'admissionheight', 'admissionweight',
+            'gender', 'ethnicity']
+    dem_data = demographic[to_keep].drop_duplicates()
+
+    # fix dem_data - gender
+    dem_data = dem_data.replace('> 89', 90)
+    dem_data['gender'] = dem_data['gender'].str.lower()
+    dem_data['gender'] = dem_data['gender'].replace('male', 1)
+    dem_data['gender'] = dem_data['gender'].replace('female', -1)
+    dem_data['gender'] = dem_data['gender'].replace('unknown', 0)
+    dem_data['gender'] = dem_data['gender'].replace('other', 0)
+
+    # fix dem_data - ethnicity
+    dem_data['ethnicity'] = dem_data['ethnicity'].str.lower()
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('asian', 0)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('caucasian', 1)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('african american', 2)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('native american', 3)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('hispanic', 4)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('unknown', np.nan)
+    dem_data['ethnicity'] = dem_data['ethnicity'].replace('other', np.nan)
+
+    # TODO fix ethnicity to one hot encoding, until then drop
+    dem_data = dem_data.drop(columns='ethnicity').drop_duplicates()
+
+    # fill nan values with mean by column
+    dem_data = dem_data.fillna(dem_data.mean())
+
+    # get discharge location (to use as labels)
+    discharge_location = demographic.loc[:, ['patientunitstayid', 'hospitaldischargelocation']]
+    discharge_location.drop_duplicates()
+
+    # replace values in discharge_location
+    discharge_replace_dict = {'Home': 1, 'Rehabilitation': 1, 'Skilled Nursing Facility': 0,
+            'Nursing Home': 0,'Death': 0, 'Other External': np.nan, 'Floor': np.nan,
+            'Other Internal': np.nan, 'Step-Down Unit (SDU)': np.nan,
+            'Other Hospital': np.nan, 'ICU': np.nan, 'Other ICU': np.nan,
+            'Other ICU (CABG)': np.nan, 'Acute Care/Floor': np.nan,
+            'Telemetry': np.nan, 'Operating Room': np.nan, 'Other': np.nan}
+    discharge_location['hospitaldischargelocation'].replace(discharge_replace_dict,
+            inplace=True)
+
+    # fill nan values with mean
+    discharge_location = discharge_location.fillna(discharge_location.mean())
+
+    return dem_data, discharge_location, died
+
 '''Wrapper for getting processed data, if we need to reload we do so here'''
 def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int=1):
     # load data from individual component files if available
@@ -327,9 +363,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         gcs.to_csv(os.path.join(loaded_loc, 'gcs.csv'))
         final_gcs.to_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
         lab_data.to_csv(os.path.join(loaded_loc, 'lab_data.csv'))
-        mort_data.to_csv(os.path.join(loaded_loc, 'mort_data.csv'))
-        dem_data.to_csv(os.path.join(loaded_loc, 'dem_data.csv'))
-        discharge_data.to_csv(os.path.join(loaded_loc, 'discharge_data.csv'))
 
     if reprocess:
         # load raw med and infusion data
@@ -337,6 +370,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
                 low_memory=False)
         infusion_data = pd.read_csv(os.path.join(data_dir, 'infusion_data_long_query.csv'),
                 low_memory=False)
+        dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
         # create dataframe to hold all time series data
         ts_data = process_ts(hr, resp, sao2, gcs)
@@ -347,15 +381,22 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         infusion_data = process_infusion(infusion_data)
         lab_data = process_lab(lab_data)
 
-        # get patient list - we include all patients from ts_data
-        # TODO in future, remove patients with <24 hrs using demographic data
-        patient_list = ts_data[['patientunitstayid']].drop_duplicates().reset_index()
+        # TODO add discharge_data and mort_data as options in get_label
+        dem_data, discharge_data, mort_data = process_dem(dem_data)
 
+        # get patient list - we include all patients from ts_data
+        patient_list = ts_data[['patientunitstayid']].drop_duplicates().reset_index()
+        patient_list = np.sort(dem_data.merge(patient_list, how='inner')[['patientunitstayid']].values.flatten())
+
+        # we will return the patient list so that the ts data can be ordered later
         # order the rest of the data by the patient order in patient list
-        ts_data = patient_list.merge(ts_data, how='left')
-        lab_data = patient_list.merge(lab_data, how='left')
-        medication_data = patient_list.merge(medication_data, how='left')
-        infusion_data = patient_list.merge(infusion_data, how='left')
+        lab_data = lab_data.set_index('patientunitstayid').reindex(patient_list)
+        medication_data = medication_data.set_index('patientunitstayid').reindex(patient_list)
+        infusion_data = infusion_data.set_index('patientunitstayid').reindex(patient_list)
+        dem_data = dem_data.set_index('patientunitstayid').reindex(patient_list)
+
+        # sort ts data (don't need to reindex since we inner joined on this patient list)
+        ts_data = ts_data.sort_values(by=['patientunitstayid'])
 
         # fill the rest of the patients indicator variables with 0s
         medication_data = medication_data.fillna(0)
@@ -374,32 +415,51 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         lab_data.to_csv(os.path.join(processed_loc, 'lab_processed.csv'))
         medication_data.to_csv(os.path.join(processed_loc, 'medication_processed.csv'))
         infusion_data.to_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
+        dem_data.to_csv(os.path.join(processed_loc, 'dem_processed.csv'))
+        mort_data.to_csv(os.path.join(processed_loc, 'mort_processed.csv'))
+        discharge_data.to_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
 
     else:
         ts_data = pd.read_csv(os.path.join(processed_loc, 'ts_processed.csv'))
         lab_data = pd.read_csv(os.path.join(processed_loc, 'lab_processed.csv'))
         medication_data = pd.read_csv(os.path.join(processed_loc, 'medication_processed.csv'))
         infusion_data = pd.read_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
+        dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_processed.csv'))
+        mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_processed.csv'))
+        discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
 
         # get patient list and put into dataframe
-        patient_list = pd.DataFrame(columns=['patientunitstayid'])
-        patient_list['patientunitstayid'] = ts_data.patientunitstayid.unique()
+        patient_list = lab_data['patientunitstayid'].values.flatten()
 
     # finally, order gcs
-    final_gcs = patient_list.merge(final_gcs, how='left')
+    final_gcs = final_gcs.set_index('patientunitstayid').reindex(patient_list)
 
     # drop unnamed columns
     ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
     lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^Unnamed')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^Unnamed')]
-    medication_data = medication_data.loc[:, ~medication_data.columns.astype(str).str.contains('^Unnamed')]
+    medication_data = medication_data.loc[:,
+            ~medication_data.columns.astype(str).str.contains('^Unnamed')]
+    dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^Unnamed')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^Unnamed')]
 
     # drop offset columns
-    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^offset_bin')]
-    lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^offset_bin')]
-    medication_data = medication_data.loc[:, ~medication_data.columns.astype(str).str.contains('^offset_bin')]
-    infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset_bin')]
-    final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^offset_bin')]
+    #ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^offset')]
+    lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^offset')]
+    medication_data = medication_data.loc[:,
+            ~medication_data.columns.astype(str).str.contains('^offset')]
+    infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset')]
+    dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^offset')]
+    final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^offset')]
 
-    return ts_data, lab_data, medication_data, infusion_data, final_gcs
+    # drop index columns
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^index')]
+    lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^index')]
+    medication_data = medication_data.loc[:,
+            ~medication_data.columns.astype(str).str.contains('^index')]
+    infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^index')]
+    dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^index')]
+    final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^index')]
+
+    return ts_data, lab_data, medication_data, infusion_data, dem_data, \
+        discharge_data, mort_data, final_gcs, patient_list
