@@ -26,6 +26,50 @@ def get_physiology(data_dir, hr_filename, resp_filename, sao2_filename):
 
     return hr, resp, sao2
 
+def get_aperiodic(data_dir, systolicbp_filename, diastolicbp_filename, meanbp_filename):
+    # load data
+    systolic = pd.read_csv(os.path.join(data_dir, systolicbp_filename))
+    diastolic = pd.read_csv(os.path.join(data_dir, diastolicbp_filename))
+    meanbp = pd.read_csv(os.path.join(data_dir, meanbp_filename))
+
+    # convert minute offset to hrs
+    systolic['offset'] = systolic['offset'] / 60
+    diastolic['offset'] = diastolic['offset'] / 60
+    meanbp['offset'] = meanbp['offset'] / 60
+
+    systolic = systolic[systolic['offset'] < 24]
+    diastolic = diastolic[diastolic['offset'] < 24]
+    meanbp = meanbp[meanbp['offset'] < 24]
+
+    # drop nan rows
+    systolic = systolic.dropna()
+    diastolic = diastolic.dropna()
+    meanbp = meanbp.dropna()
+
+    return systolic, diastolic, meanbp
+
+def get_nursecharting(data_dir, verbal_filename, eyes_filename, temperature_filename):
+    # load data
+    verbal = pd.read_csv(os.path.join(data_dir, verbal_filename))
+    eyes = pd.read_csv(os.path.join(data_dir, eyes_filename))
+    temperature = pd.read_csv(os.path.join(data_dir, temperature_filename))
+
+    # convert minute offset to hrs
+    verbal['offset'] = verbal['offset'] / 60
+    eyes['offset'] = eyes['offset'] / 60
+    temperature['offset'] = temperature['offset'] / 60
+
+    verbal = verbal[verbal['offset'] < 24]
+    eyes = eyes[eyes['offset'] < 24]
+    temperature = temperature[temperature['offset'] < 24]
+
+    # drop nan rows
+    verbal = verbal.dropna()
+    eyes = eyes.dropna()
+    temperature = temperature.dropna()
+
+    return verbal, eyes, temperature
+
 def get_motor_gcs(gcs_filename):
     # read file
     gcs = pd.read_csv(gcs_filename)
