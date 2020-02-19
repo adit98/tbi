@@ -279,7 +279,7 @@ def score(X_train, y_train, X_test, y_test, clf):
     best_thresh = thresholds[np.argmax(np.square(tpr) + np.square(1-fpr))]
     auc = roc_auc_score(y_train, y_pred_train[:, 1])
 
-    return train_score, test_score, best_thresh, auc, thresholds
+    return train_score, test_score, best_thresh, auc, thresholds, fpr, tpr
 
 def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarization_int):
     X_ts, X_lab, X_med, X_inf, X_dem, y_discharge, y_mort, y_gcs, patient_list \
@@ -376,6 +376,8 @@ def main():
 
     # create lists to hold metrics across runs
     thresholds_all = []
+    tpr_all = []
+    fpr_all = []
     auc_all = []
     theta_all = []
     coeff_all = []
@@ -417,14 +419,16 @@ def main():
         model = train(X_stacked_train, y_train)
 
         # get scores
-        train_score, test_score, best_thresh, auc, thresholds = score(X_stacked_train,
-                y_train, X_stacked_test, y_test, model)
+        train_score, test_score, best_thresh, auc, thresholds, fpr, tpr = \
+                score(X_stacked_train, y_train, X_stacked_test, y_test, model)
 
         train_scores.append(train_score)
         test_scores.append(test_score)
         theta_all.append(best_thresh)
         auc_all.append(auc)
         thresholds_all.append(thresholds[:, None].T)
+        fpr_all.append(fpr)
+        tpr_all.append(tpr)
 
         # get coefficients
         coeff_all.append(model.coef_)
@@ -435,6 +439,8 @@ def main():
     theta_all=np.vstack(theta_all)
     auc_all=np.vstack(auc_all)
     thresholds_all = np.hstack(thresholds_all)
+    fpr_all = np.hstack(fpr_all)
+    tpr_all = np.hstack(tpr_all)
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
@@ -450,6 +456,8 @@ def main():
         np.save(os.path.join(results_dir, exp_num, 'theta_all.npy'), theta_all)
         np.save(os.path.join(results_dir, exp_num, 'auc_all.npy'), auc_all)
         np.save(os.path.join(results_dir, exp_num, 'thresholds_all.npy'), thresholds_all)
+        np.save(os.path.join(results_dir, exp_num, 'fpr_all.npy'), fpr_all)
+        np.save(os.path.join(results_dir, exp_num, 'tpr_all.npy'), tpr_all)
 
 if __name__ == "__main__":
     main()
