@@ -14,59 +14,111 @@ from tqdm import tqdm
 
 def extract_ts(X_ts_train, X_ts_test):
     # separate into individual (train)
-    split_size = X_ts_train.shape[1]//4
+    split_size = X_ts_train.shape[1]//10
     X_hr_train = X_ts_train[:, :split_size]
     X_resp_train = X_ts_train[:, split_size:split_size*2]
     X_sao2_train = X_ts_train[:, split_size*2:split_size*3]
-    X_gcs_train = X_ts_train[:, split_size*3:]
+    X_gcs_train = X_ts_train[:, split_size*3:split_size*4]
+    X_systolic_train = X_ts_train[:, split_size*4:split_size*5]
+    X_diastolic_train = X_ts_train[:, split_size*5:split_size*6]
+    X_meanbp_train = X_ts_train[:, split_size*6:split_size*7]
+    X_verbal_train = X_ts_train[:, split_size*7:split_size*8]
+    X_eyes_train = X_ts_train[:, split_size*8:split_size*9]
+    X_temp_train = X_ts_train[:, split_size*9:]
 
     # separate into individual (test)
     X_hr_test = X_ts_test[:, :split_size]
     X_resp_test = X_ts_test[:, split_size:split_size*2]
     X_sao2_test = X_ts_test[:, split_size*2:split_size*3]
-    X_gcs_test = X_ts_test[:, split_size*3:]
+    X_gcs_test = X_ts_test[:, split_size*3:split_size*4]
+    X_systolic_test = X_ts_test[:, split_size*4:split_size*5]
+    X_diastolic_test = X_ts_test[:, split_size*5:split_size*6]
+    X_meanbp_test = X_ts_test[:, split_size*6:split_size*7]
+    X_verbal_test = X_ts_test[:, split_size*7:split_size*8]
+    X_eyes_test = X_ts_test[:, split_size*8:split_size*9]
+    X_temp_test = X_ts_test[:, split_size*9:]
 
     # create scaler objects
     hr_scaler = StandardScaler()
     resp_scaler = StandardScaler()
     sao2_scaler = StandardScaler()
     gcs_scaler = StandardScaler()
+    systolic_scaler = StandardScaler()
+    diastolic_scaler = StandardScaler()
+    meanbp_scaler = StandardScaler()
+    verbal_scaler = StandardScaler()
+    eyes_scaler = StandardScaler()
+    temp_scaler = StandardScaler()
 
     # fit scaler on train data and transform
     X_hr_train = hr_scaler.fit_transform(X_hr_train)
     X_resp_train = resp_scaler.fit_transform(X_resp_train)
     X_sao2_train = sao2_scaler.fit_transform(X_sao2_train)
     X_gcs_train = gcs_scaler.fit_transform(X_gcs_train)
+    X_systolic_train = systolic_scaler.fit_transform(X_systolic_train)
+    X_diastolic_train = diastolic_scaler.fit_transform(X_diastolic_train)
+    X_meanbp_train = meanbp_scaler.fit_transform(X_meanbp_train)
+    X_verbal_train = verbal_scaler.fit_transform(X_verbal_train)
+    X_eyes_train = eyes_scaler.fit_transform(X_eyes_train)
+    X_temp_train = temp_scaler.fit_transform(X_temp_train)
 
     # transform test data
     X_hr_test = hr_scaler.transform(X_hr_test)
     X_resp_test = resp_scaler.transform(X_resp_test)
     X_sao2_test = sao2_scaler.transform(X_sao2_test)
     X_gcs_test = gcs_scaler.transform(X_gcs_test)
+    X_systolic_test = systolic_scaler.transform(X_systolic_test)
+    X_diastolic_test = diastolic_scaler.transform(X_diastolic_test)
+    X_meanbp_test = meanbp_scaler.transform(X_meanbp_test)
+    X_verbal_test = verbal_scaler.transform(X_verbal_test)
+    X_eyes_test = eyes_scaler.transform(X_eyes_test)
+    X_temp_test = temp_scaler.transform(X_temp_test)
 
     # create PCA objects
     hr_pca = PCA(n_components=5)
     resp_pca = PCA(n_components=5)
     sao2_pca = PCA(n_components=5)
     gcs_pca = PCA(n_components=10)
+    systolic_pca = PCA(n_components=5)
+    diastolic_pca = PCA(n_components=5)
+    meanbp_pca = PCA(n_components=5)
+    verbal_pca = PCA(n_components=5)
+    eyes_pca = PCA(n_components=5)
+    temp_pca = PCA(n_components=5)
 
     # fit pca on train data and transform
     X_hr_train = hr_pca.fit_transform(X_hr_train)
     X_resp_train = resp_pca.fit_transform(X_resp_train)
     X_sao2_train = sao2_pca.fit_transform(X_sao2_train)
     X_gcs_train = gcs_pca.fit_transform(X_gcs_train)
+    X_systolic_train = systolic_pca.fit_transform(X_systolic_train)
+    X_diastolic_train = diastolic_pca.fit_transform(X_diastolic_train)
+    X_meanbp_train = meanbp_pca.fit_transform(X_meanbp_train)
+    X_verbal_train = verbal_pca.fit_transform(X_verbal_train)
+    X_eyes_train = eyes_pca.fit_transform(X_eyes_train)
+    X_temp_train = temp_pca.fit_transform(X_temp_train)
 
     # stack data
-    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
+    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train,
+            X_systolic_train, X_diastolic_train, X_meanbp_train, X_verbal_train,
+            X_eyes_train, X_temp_train])
 
     # transform test data
     X_hr_test = hr_pca.transform(X_hr_test)
     X_resp_test = resp_pca.transform(X_resp_test)
     X_sao2_test = sao2_pca.transform(X_sao2_test)
     X_gcs_test = gcs_pca.transform(X_gcs_test)
+    X_systolic_test = systolic_pca.transform(X_systolic_test)
+    X_diastolic_test = diastolic_pca.transform(X_diastolic_test)
+    X_meanbp_test = meanbp_pca.transform(X_meanbp_test)
+    X_verbal_test = verbal_pca.transform(X_verbal_test)
+    X_eyes_test = eyes_pca.transform(X_eyes_test)
+    X_temp_test = temp_pca.transform(X_temp_test)
 
     # restack
-    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
+    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test,
+            X_systolic_test, X_diastolic_test, X_meanbp_test,
+            X_verbal_test, X_eyes_test, X_temp_test])
 
     return X_ts_train, X_ts_test
 
