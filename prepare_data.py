@@ -353,9 +353,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         gcs = pd.read_csv(os.path.join(loaded_loc, 'gcs.csv'))
         final_gcs = pd.read_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
         lab_data = pd.read_csv(os.path.join(loaded_loc, 'lab_data.csv'))
-        mort_data = pd.read_csv(os.path.join(loaded_loc, 'mort_data.csv'))
-        dem_data = pd.read_csv(os.path.join(loaded_loc, 'dem_data.csv'))
-        discharge_data = pd.read_csv(os.path.join(loaded_loc, 'discharge_data.csv'))
         systolic = pd.read_csv(os.path.join(loaded_loc, 'systolic.csv'))
         diastolic = pd.read_csv(os.path.join(loaded_loc, 'diastolic.csv'))
         meanbp = pd.read_csv(os.path.join(loaded_loc, 'meanbp.csv'))
@@ -368,12 +365,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
                 'alpaca_resp.csv', 'alpaca_sao2.csv')
         gcs, final_gcs = get_motor_gcs(os.path.join(data_dir, 'patient_motor.csv'))
         lab_data = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
-        mort_data, dem_data, discharge_data = get_demographics(os.path.join(data_dir,
+        dem_data = get_demographics(os.path.join(data_dir,
             'patient_demographics_data.csv'))
         systolic, diastolic, meanbp = get_aperiodic(data_dir,
             'noninvasivesystolicbp.csv', 'noninvasivediastolicbp.csv', 'noninvasivemeanbp.csv')
         verbal, eyes, temp = get_nursecharting(data_dir, 'patient_verbal.csv',
-            'patient_eyes.csv', 'patient_temperature.csv')        
+            'patient_eyes.csv', 'patient_temperature.csv')
 
         # save data that we split into individual components
         hr.to_csv(os.path.join(loaded_loc, 'hr.csv'))
@@ -398,8 +395,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
         # create dataframe to hold all time series data
-        ts_data = process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal,
-            eyes, temp)
+        ts_data = process_ts(hr, resp, sao2, gcs)#, systolic, diastolic, meanbp, verbal, eyes, temp)
 
         # process and reduce dimensionality of infusion and medication data
         # TODO figure out if this step can be placed where we do the second fillna
