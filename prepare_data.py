@@ -115,15 +115,24 @@ def get_demographics(dem_filename):
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
     return demographic_all
 
-def process_ts(hr, resp, sao2, gcs, summarization_int=1):
+def process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, temp, summarization_int=1):
     # put all the ts data into the same dataframe
     ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
     hr['key'] = 'hr'
     resp['key'] = 'resp'
     sao2['key'] = 'sao2'
     gcs['key'] = 'gcs'
+    systolic['key'] = 'systolic'
+    diastolic['key'] = 'diastolic'
+    meanbp['key'] = 'meanbp'
+    verbal['key'] = 'verbal'
+    eyes['key'] = 'eyes'
+    temp['key'] = 'temp'
+
     ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2,
-            how = 'outer').merge(gcs, how = 'outer')
+            how = 'outer').merge(gcs, how = 'outer').merge(systolic, how = 'outer').merge(diastolic,
+            how = 'outer').merge(meanbp, how = 'outer').merge(verbal, how = 'outer').merge(eyes,
+            how = 'outer').merge(temp, how = 'outer')
 
     # drop extra columns, nan rows
     ts_data = ts_data.drop(columns=['origin']).dropna()
@@ -347,6 +356,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         mort_data = pd.read_csv(os.path.join(loaded_loc, 'mort_data.csv'))
         dem_data = pd.read_csv(os.path.join(loaded_loc, 'dem_data.csv'))
         discharge_data = pd.read_csv(os.path.join(loaded_loc, 'discharge_data.csv'))
+        systolic = pd.read_csv(os.path.join(loaded_loc, 'systolic.csv'))
+        diastolic = pd.read_csv(os.path.join(loaded_loc, 'diastolic.csv'))
+        meanbp = pd.read_csv(os.path.join(loaded_loc, 'meanbp.csv'))
+        verbal = pd.read_csv(os.path.join(loaded_loc, 'verbal.csv'))
+        eyes = pd.read_csv(os.path.join(loaded_loc, 'eyes.csv'))
+        temp = pd.read_csv(os.path.join(loaded_loc, 'temperature.csv'))
 
     else:
         hr, resp, sao2 = get_physiology(data_dir, 'alpaca_hr.csv',
@@ -355,6 +370,10 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         lab_data = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
         mort_data, dem_data, discharge_data = get_demographics(os.path.join(data_dir,
             'patient_demographics_data.csv'))
+        systolic, diastolic, meanbp = get_aperiodic(data_dir,
+            'noninvasivesystolicbp.csv', 'noninvasivediastolicbp.csv', 'noninvasivemeanbp.csv')
+        verbal, eyes, temp = get_nursecharting(data_dir, 'patient_verbal.csv',
+            'patient_eyes.csv', 'patient_temperature.csv')        
 
         # save data that we split into individual components
         hr.to_csv(os.path.join(loaded_loc, 'hr.csv'))
@@ -363,6 +382,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         gcs.to_csv(os.path.join(loaded_loc, 'gcs.csv'))
         final_gcs.to_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
         lab_data.to_csv(os.path.join(loaded_loc, 'lab_data.csv'))
+        systolic.to_csv(os.path.join(loaded_loc, 'systolic.csv'))
+        diastolic.to_csv(os.path.join(loaded_loc, 'diastolic.csv'))
+        meanbp.to_csv(os.path.join(loaded_loc, 'meanbp.csv'))
+        verbal.to_csv(os.path.join(loaded_loc, 'verbal.csv'))
+        eyes.to_csv(os.path.join(loaded_loc, 'eyes.csv'))
+        temp.to_csv(os.path.join(loaded_loc, 'temperature.csv'))
 
     if reprocess:
         # load raw med and infusion data
@@ -373,7 +398,8 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
         # create dataframe to hold all time series data
-        ts_data = process_ts(hr, resp, sao2, gcs)
+        ts_data = process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal,
+            eyes, temp)
 
         # process and reduce dimensionality of infusion and medication data
         # TODO figure out if this step can be placed where we do the second fillna
