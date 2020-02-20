@@ -460,7 +460,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = dem_data.set_index('patientunitstayid').reindex(patient_list)
 
         # sort ts data (don't need to reindex since we inner joined on this patient list)
-        ts_data = ts_data.sort_values(by=['patientunitstayid'])
+        ts_data = ts_data.sort_values(by=['patientunitstayid', 'offset_bin'])
 
         # fill the rest of the patients indicator variables with 0s
         medication_data = medication_data.fillna(0)

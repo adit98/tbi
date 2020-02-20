@@ -6,13 +6,14 @@ import re
 from prepare_data import *
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from pyts.transformation import BOSS
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.utils import resample
 from tqdm import tqdm
 
-def extract_ts(X_ts_train, X_ts_test):
+def extract_ts(X_ts_train, X_ts_test, method='PCA', num_samples=5):
     # separate into individual (train)
     split_size = X_ts_train.shape[1]//10
     X_hr_train = X_ts_train[:, :split_size]
@@ -22,9 +23,9 @@ def extract_ts(X_ts_train, X_ts_test):
     X_systolic_train = X_ts_train[:, split_size*4:split_size*5]
     X_diastolic_train = X_ts_train[:, split_size*5:split_size*6]
     X_meanbp_train = X_ts_train[:, split_size*6:split_size*7]
-    X_verbal_train = X_ts_train[:, split_size*7:split_size*8]
-    X_eyes_train = X_ts_train[:, split_size*8:split_size*9]
-    X_temp_train = X_ts_train[:, split_size*9:]
+    X_eyes_train = X_ts_train[:, split_size*7:split_size*8]
+    X_verbal_train = X_ts_train[:, split_size*8:split_size*9]
+    X_temp_train = X_ts_train[:, split_size*9:split_size*10]
 
     # separate into individual (test)
     X_hr_test = X_ts_test[:, :split_size]
@@ -34,9 +35,9 @@ def extract_ts(X_ts_train, X_ts_test):
     X_systolic_test = X_ts_test[:, split_size*4:split_size*5]
     X_diastolic_test = X_ts_test[:, split_size*5:split_size*6]
     X_meanbp_test = X_ts_test[:, split_size*6:split_size*7]
-    X_verbal_test = X_ts_test[:, split_size*7:split_size*8]
-    X_eyes_test = X_ts_test[:, split_size*8:split_size*9]
-    X_temp_test = X_ts_test[:, split_size*9:]
+    X_eyes_test = X_ts_test[:, split_size*7:split_size*8]
+    X_verbal_test = X_ts_test[:, split_size*8:split_size*9]
+    X_temp_test = X_ts_test[:, split_size*9:split_size*10]
 
     # create scaler objects
     hr_scaler = StandardScaler()
@@ -46,8 +47,8 @@ def extract_ts(X_ts_train, X_ts_test):
     systolic_scaler = StandardScaler()
     diastolic_scaler = StandardScaler()
     meanbp_scaler = StandardScaler()
-    verbal_scaler = StandardScaler()
     eyes_scaler = StandardScaler()
+    verbal_scaler = StandardScaler()
     temp_scaler = StandardScaler()
 
     # fit scaler on train data and transform
@@ -58,8 +59,8 @@ def extract_ts(X_ts_train, X_ts_test):
     X_systolic_train = systolic_scaler.fit_transform(X_systolic_train)
     X_diastolic_train = diastolic_scaler.fit_transform(X_diastolic_train)
     X_meanbp_train = meanbp_scaler.fit_transform(X_meanbp_train)
-    X_verbal_train = verbal_scaler.fit_transform(X_verbal_train)
     X_eyes_train = eyes_scaler.fit_transform(X_eyes_train)
+    X_verbal_train = verbal_scaler.fit_transform(X_verbal_train)
     X_temp_train = temp_scaler.fit_transform(X_temp_train)
 
     # transform test data
@@ -67,58 +68,134 @@ def extract_ts(X_ts_train, X_ts_test):
     X_resp_test = resp_scaler.transform(X_resp_test)
     X_sao2_test = sao2_scaler.transform(X_sao2_test)
     X_gcs_test = gcs_scaler.transform(X_gcs_test)
-    X_systolic_test = systolic_scaler.transform(X_systolic_test)
-    X_diastolic_test = diastolic_scaler.transform(X_diastolic_test)
-    X_meanbp_test = meanbp_scaler.transform(X_meanbp_test)
-    X_verbal_test = verbal_scaler.transform(X_verbal_test)
-    X_eyes_test = eyes_scaler.transform(X_eyes_test)
-    X_temp_test = temp_scaler.transform(X_temp_test)
+    X_systolic_test = systolic_scaler.fit_transform(X_systolic_test)
+    X_diastolic_test = diastolic_scaler.fit_transform(X_diastolic_test)
+    X_meanbp_test = meanbp_scaler.fit_transform(X_meanbp_test)
+    X_eyes_test = eyes_scaler.fit_transform(X_eyes_test)
+    X_verbal_test = verbal_scaler.fit_transform(X_verbal_test)
+    X_temp_test = temp_scaler.fit_transform(X_temp_test)
 
-    # create PCA objects
-    hr_pca = PCA(n_components=5)
-    resp_pca = PCA(n_components=5)
-    sao2_pca = PCA(n_components=5)
-    gcs_pca = PCA(n_components=10)
-    systolic_pca = PCA(n_components=5)
-    diastolic_pca = PCA(n_components=5)
-    meanbp_pca = PCA(n_components=5)
-    verbal_pca = PCA(n_components=5)
-    eyes_pca = PCA(n_components=5)
-    temp_pca = PCA(n_components=5)
+    if method == 'PCA':
+        # create PCA objects
+        hr_pca = PCA(n_components=num_samples)
+        resp_pca = PCA(n_components=num_samples)
+        sao2_pca = PCA(n_components=num_samples)
+        gcs_pca = PCA(n_components=num_samples)
+        systolic_pca = PCA(num_samples)
+        diastolic_pca = PCA(num_samples)
+        meanbp_pca = PCA(num_samples)
+        eyes_pca = PCA(num_samples)
+        verbal_pca = PCA(num_samples)
+        temp_pca = PCA(num_samples)
 
-    # fit pca on train data and transform
-    X_hr_train = hr_pca.fit_transform(X_hr_train)
-    X_resp_train = resp_pca.fit_transform(X_resp_train)
-    X_sao2_train = sao2_pca.fit_transform(X_sao2_train)
-    X_gcs_train = gcs_pca.fit_transform(X_gcs_train)
-    X_systolic_train = systolic_pca.fit_transform(X_systolic_train)
-    X_diastolic_train = diastolic_pca.fit_transform(X_diastolic_train)
-    X_meanbp_train = meanbp_pca.fit_transform(X_meanbp_train)
-    X_verbal_train = verbal_pca.fit_transform(X_verbal_train)
-    X_eyes_train = eyes_pca.fit_transform(X_eyes_train)
-    X_temp_train = temp_pca.fit_transform(X_temp_train)
+        # fit pca on train data and transform
+        X_hr_train = hr_pca.fit_transform(X_hr_train)
+        X_resp_train = resp_pca.fit_transform(X_resp_train)
+        X_sao2_train = sao2_pca.fit_transform(X_sao2_train)
+        X_gcs_train = gcs_pca.fit_transform(X_gcs_train)
+        X_systolic_train = systolic_pca.fit_transform(X_systolic_train)
+        X_diastolic_train = diastolic_pca.fit_transform(X_diastolic_train)
+        X_meanbp_train = meanbp_pca.fit_transform(X_meanbp_train)
+        X_eyes_train = eyes_pca.fit_transform(X_eyes_train)
+        X_verbal_train = verbal_pca.fit_transform(X_verbal_train)
+        X_temp_train = temp_pca.fit_transform(X_temp_train)
 
-    # stack data
-    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train,
-            X_systolic_train, X_diastolic_train, X_meanbp_train, X_verbal_train,
-            X_eyes_train, X_temp_train])
+        # transform test data
+        X_hr_test = hr_pca.transform(X_hr_test)
+        X_resp_test = resp_pca.transform(X_resp_test)
+        X_sao2_test = sao2_pca.transform(X_sao2_test)
+        X_gcs_test = gcs_pca.transform(X_gcs_test)
+        X_systolic_test = systolic_pca.fit_transform(X_systolic_test)
+        X_diastolic_test = diastolic_pca.fit_transform(X_diastolic_test)
+        X_meanbp_test = meanbp_pca.fit_transform(X_meanbp_test)
+        X_eyes_test = eyes_pca.fit_transform(X_eyes_test)
+        X_verbal_test = verbal_pca.fit_transform(X_verbal_test)
+        X_temp_test = temp_pca.fit_transform(X_temp_test)
 
-    # transform test data
-    X_hr_test = hr_pca.transform(X_hr_test)
-    X_resp_test = resp_pca.transform(X_resp_test)
-    X_sao2_test = sao2_pca.transform(X_sao2_test)
-    X_gcs_test = gcs_pca.transform(X_gcs_test)
-    X_systolic_test = systolic_pca.transform(X_systolic_test)
-    X_diastolic_test = diastolic_pca.transform(X_diastolic_test)
-    X_meanbp_test = meanbp_pca.transform(X_meanbp_test)
-    X_verbal_test = verbal_pca.transform(X_verbal_test)
-    X_eyes_test = eyes_pca.transform(X_eyes_test)
-    X_temp_test = temp_pca.transform(X_temp_test)
+    elif method == 'sample':
+        # figure out how many samples we have
+        sample_size = int(np.around(X_hr_train.shape[1] / num_samples))
 
-    # restack
-    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test,
-            X_systolic_test, X_diastolic_test, X_meanbp_test,
-            X_verbal_test, X_eyes_test, X_temp_test])
+        # if we rounded down sample_size, add 1 to num_samples
+        if X_hr_train.shape[1] > num_samples * sample_size:
+            num_samples += 1
+        
+        # create arrays to hold sampled values
+        X_hr_reduced_train = np.zeros([X_hr_train.shape[0], num_samples])
+        X_resp_reduced_train = np.zeros([X_resp_train.shape[0], num_samples])
+        X_sao2_reduced_train = np.zeros([X_sao2_train.shape[0], num_samples])
+        X_gcs_reduced_train = np.zeros([X_gcs_train.shape[0], num_samples])
+
+        X_hr_reduced_test = np.zeros([X_hr_test.shape[0], num_samples])
+        X_resp_reduced_test = np.zeros([X_resp_test.shape[0], num_samples])
+        X_sao2_reduced_test = np.zeros([X_sao2_test.shape[0], num_samples])
+        X_gcs_reduced_test = np.zeros([X_gcs_test.shape[0], num_samples])
+
+        for i in range(num_samples - 1):
+            X_hr_reduced_train[:, i] = np.sum(X_hr_train[:, :i * sample_size])
+            X_resp_reduced_train[:, i] = np.sum(X_resp_train[:, :i * sample_size])
+            X_sao2_reduced_train[:, i] = np.sum(X_sao2_train[:, :i * sample_size])
+            X_gcs_reduced_train[:, i] = np.sum(X_gcs_train[:, :i * sample_size])
+
+            X_hr_reduced_test[:, i] = np.sum(X_hr_test[:, :i * sample_size])
+            X_resp_reduced_test[:, i] = np.sum(X_resp_test[:, :i * sample_size])
+            X_sao2_reduced_test[:, i] = np.sum(X_sao2_test[:, :i * sample_size])
+            X_gcs_reduced_test[:, i] = np.sum(X_gcs_test[:, :i * sample_size])
+
+        # sum the rest of the values for 
+        X_hr_reduced_train[:, -1] = np.sum(X_hr_train)
+        X_resp_reduced_train[:, -1] = np.sum(X_resp_train)
+        X_sao2_reduced_train[:, -1] = np.sum(X_sao2_train)
+        X_gcs_reduced_train[:, -1] = np.sum(X_gcs_train)
+
+        X_hr_reduced_test[:, -1] = np.sum(X_hr_test)
+        X_resp_reduced_test[:, -1] = np.sum(X_resp_test)
+        X_sao2_reduced_test[:, -1] = np.sum(X_sao2_test)
+        X_gcs_reduced_test[:, -1] = np.sum(X_gcs_test)
+
+        X_hr_train = X_hr_reduced_train
+        X_resp_train = X_hr_reduced_train
+        X_sao2_train = X_hr_reduced_train
+        X_gcs_train = X_hr_reduced_train
+
+        X_hr_test = X_hr_reduced_test
+        X_resp_test = X_hr_reduced_test
+        X_sao2_test = X_hr_reduced_test
+        X_gcs_test = X_hr_reduced_test
+
+    elif method == 'BOSS':
+        # create PCA objects
+        hr_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
+                norm_std=True)
+        resp_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
+                norm_std=True)
+        sao2_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
+                norm_std=True)
+        gcs_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
+                norm_std=True)
+
+        # fit pca on train data and transform
+        X_hr_train = hr_boss.fit_transform(X_hr_train)
+        X_resp_train = resp_boss.fit_transform(X_resp_train)
+        X_sao2_train = sao2_boss.fit_transform(X_sao2_train)
+        X_gcs_train = gcs_boss.fit_transform(X_gcs_train)
+
+        # transform test data
+        X_hr_test = hr_boss.transform(X_hr_test)
+        X_resp_test = resp_boss.transform(X_resp_test)
+        X_sao2_test = sao2_boss.transform(X_sao2_test)
+        X_gcs_test = gcs_boss.transform(X_gcs_test)
+
+        raise NotImplementedError
+
+    else:
+        raise NotImplementedError
+
+    # stack data - train
+    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
+
+    # stack data - test
+    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
 
     return X_ts_train, X_ts_test
 
@@ -263,8 +340,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=2000, penalty='elasticnet', l1_ratio=0.5,
-                         solver='saga', C=.8)
+        clf = LogisticRegression(max_iter=500, penalty='elasticnet', l1_ratio=0.8,
+                         solver='saga', C=.1)
         clf.fit(X, y)
         return clf
 
@@ -277,10 +354,9 @@ def score(X_train, y_train, X_test, y_test, clf):
     y_pred_train = clf.predict_proba(X_train)
     fpr, tpr, thresholds = roc_curve(y_train, y_pred_train[:, 0])
     best_thresh = thresholds[np.argmax(np.square(tpr) + np.square(1-fpr))]
-    print(best_thresh)
     auc = roc_auc_score(y_train, y_pred_train[:, 1])
 
-    return train_score, test_score, best_thresh, auc, thresholds, fpr, tpr
+    return train_score, test_score, best_thresh, auc, thresholds
 
 def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarization_int):
     X_ts, X_lab, X_med, X_inf, X_dem, y_discharge, y_mort, y_gcs, patient_list \
@@ -288,8 +364,6 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
                     data_dir, summarization_int)
 
     num_bins = 24 // summarization_int
-
-    print(X_ts.columns)
 
     # get individual ts components and stack values horizontally
     X_hr = X_ts[['patientunitstayid', 'offset_bin', 'hr']].pivot(index='patientunitstayid',
@@ -300,9 +374,22 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
         columns='offset_bin', values='sao2').values
     X_gcs = X_ts[['patientunitstayid', 'offset_bin', 'gcs']].pivot(index='patientunitstayid',
         columns='offset_bin', values='gcs').values
+    X_systolic = X_ts[['patientunitstayid', 'offset_bin', 'noninvasivesystolic']] \
+            .pivot(index='patientunitstayid', columns='offset_bin', values='noninvasivesystolic').values
+    X_diastolic = X_ts[['patientunitstayid', 'offset_bin', 'noninvasivediastolic']] \
+            .pivot(index='patientunitstayid', columns='offset_bin', values='noninvasivediastolic').values
+    X_meanbp = X_ts[['patientunitstayid', 'offset_bin', 'noninvasivemean']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='noninvasivemean').values
+    X_verbal = X_ts[['patientunitstayid', 'offset_bin', 'verbal']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='verbal').values
+    X_eyes = X_ts[['patientunitstayid', 'offset_bin', 'eyes']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='eyes').values
+    X_temp = X_ts[['patientunitstayid', 'offset_bin', 'temp']].pivot(index='patientunitstayid',
+        columns='offset_bin', values='temp').values
 
     # put them back into ts numpy array
-    X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs])
+    X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs, X_systolic, X_diastolic, X_meanbp,
+        X_eyes, X_verbal, X_temp])
 
     # get other stuff, move to numpy
     X_lab = X_lab.iloc[:, 1:].values
@@ -379,8 +466,6 @@ def main():
 
     # create lists to hold metrics across runs
     thresholds_all = []
-    tpr_all = []
-    fpr_all = []
     auc_all = []
     theta_all = []
     coeff_all = []
@@ -404,7 +489,7 @@ def main():
         X_inf_test = X_test[:, :num_components[3]]
 
         # extract features
-        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test)
+        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, method='PCA')
         X_lab_train, X_lab_test = extract_lab(X_lab_train, X_lab_test)
         X_med_train, X_med_test = extract_med(X_med_train, X_med_test)
         X_inf_train, X_inf_test = extract_inf(X_inf_train, X_inf_test)
@@ -422,16 +507,14 @@ def main():
         model = train(X_stacked_train, y_train)
 
         # get scores
-        train_score, test_score, best_thresh, auc, thresholds, fpr, tpr = \
-                score(X_stacked_train, y_train, X_stacked_test, y_test, model)
+        train_score, test_score, best_thresh, auc, thresholds = score(X_stacked_train,
+                y_train, X_stacked_test, y_test, model)
 
         train_scores.append(train_score)
         test_scores.append(test_score)
         theta_all.append(best_thresh)
         auc_all.append(auc)
         thresholds_all.append(thresholds[:, None].T)
-        fpr_all.append(fpr)
-        tpr_all.append(tpr)
 
         # get coefficients
         coeff_all.append(model.coef_)
@@ -442,8 +525,6 @@ def main():
     theta_all=np.vstack(theta_all)
     auc_all=np.vstack(auc_all)
     thresholds_all = np.hstack(thresholds_all)
-    fpr_all = np.hstack(fpr_all)
-    tpr_all = np.hstack(tpr_all)
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
@@ -459,8 +540,6 @@ def main():
         np.save(os.path.join(results_dir, exp_num, 'theta_all.npy'), theta_all)
         np.save(os.path.join(results_dir, exp_num, 'auc_all.npy'), auc_all)
         np.save(os.path.join(results_dir, exp_num, 'thresholds_all.npy'), thresholds_all)
-        np.save(os.path.join(results_dir, exp_num, 'fpr_all.npy'), fpr_all)
-        np.save(os.path.join(results_dir, exp_num, 'tpr_all.npy'), tpr_all)
 
 if __name__ == "__main__":
     main()
