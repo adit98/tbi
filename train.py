@@ -286,10 +286,11 @@ def get_labels(y_gcs = None, mort=False, mort_df = None):
     if y_gcs is None:
         raise ValueError("Must supply y_gcs")
     
+    y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
     y = y_gcs['Value'].values
-
+    mortal = y_gcs['unitdischargestatus'].values
     # modify labels (positive (1) is bad outcome (GCS < 6))
-    y[y < 6] = 1
+    y[np.logical_or(y < 6, mortal == 'Expired')] = 1
     y[y == 6] = 0
 
     return y
@@ -340,8 +341,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=500, penalty='elasticnet', l1_ratio=0.8,
-                         solver='saga', C=.1)
+        clf = LogisticRegression(max_iter=2000, penalty='elasticnet', l1_ratio=0.5,
+                         solver='saga', C=.9)
         clf.fit(X, y)
         return clf
 
@@ -462,7 +463,9 @@ def main():
 
     X_stacked, y_gcs, num_components = stack_data(args.reload, args.reprocess,
             loaded_dir, processed_dir, args.data_dir, args.summarization_int)
-    y = get_labels(y_gcs)
+
+    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
+    y = get_labels(y_gcs, False, mort_df)
 
     # create lists to hold metrics across runs
     thresholds_all = []
