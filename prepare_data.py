@@ -34,9 +34,33 @@ def get_aperiodic(data_dir, systolicbp_filename, diastolicbp_filename, meanbp_fi
     meanbp = pd.read_csv(os.path.join(data_dir, meanbp_filename))
 
     # convert minute offset to hrs
-    systolic['offset'] = systolic['offset'] / 60
-    diastolic['offset'] = diastolic['offset'] / 60
-    meanbp['offset'] = meanbp['offset'] / 60
+    systolic['offset'] = systolic['observationoffset'] / 60
+    diastolic['offset'] = diastolic['observationoffset'] / 60
+    meanbp['offset'] = meanbp['observationoffset'] / 60
+
+    # lower case columns
+    systolic.columns = map(str.lower, systolic.columns)
+    diastolic.columns = map(str.lower, diastolic.columns)
+    meanbp.columns = map(str.lower, meanbp.columns)
+
+    # drop unnamed
+    systolic = systolic.loc[:, ~systolic.columns.str.contains('^unnamed')]
+    diastolic = diastolic.loc[:, ~diastolic.columns.str.contains('^unnamed')]
+    meanbp = meanbp.loc[:, ~meanbp.columns.str.contains('^unnamed')]
+
+    systolic = systolic.drop(columns=['observationoffset'])
+    diastolic = diastolic.drop(columns=['observationoffset'])
+    meanbp = meanbp.drop(columns=['observationoffset'])
+
+    # rename columns
+    systolic = systolic.rename(columns={"noninvasivesystolic": "value"})
+    diastolic = diastolic.rename(columns={"noninvasivediastolic": "value"})
+    meanbp = meanbp.rename(columns={"noninvasivemean": "value"})
+
+    # drop values before 0 and after 24
+    systolic = systolic[systolic['offset'] > 0]
+    diastolic = diastolic[diastolic['offset'] > 0]
+    meanbp = meanbp[meanbp['offset'] > 0]
 
     systolic = systolic[systolic['offset'] < 24]
     diastolic = diastolic[diastolic['offset'] < 24]
@@ -56,13 +80,32 @@ def get_nursecharting(data_dir, verbal_filename, eyes_filename, temperature_file
     temperature = pd.read_csv(os.path.join(data_dir, temperature_filename))
 
     # convert minute offset to hrs
-    verbal['offset'] = verbal['offset'] / 60
-    eyes['offset'] = eyes['offset'] / 60
-    temperature['offset'] = temperature['offset'] / 60
+    verbal['offset'] = verbal['observationoffset'] / 60
+    eyes['offset'] = eyes['observationoffset'] / 60
+    temperature['offset'] = temperature['observationoffset'] / 60
+
+    # drop observations earlier than 0, past 24
+    verbal = verbal[verbal['offset'] > 0]
+    eyes = eyes[eyes['offset'] > 0]
+    temperature = temperature[temperature['offset'] > 0]
 
     verbal = verbal[verbal['offset'] < 24]
     eyes = eyes[eyes['offset'] < 24]
     temperature = temperature[temperature['offset'] < 24]
+
+    # lower case columns
+    verbal.columns = map(str.lower, verbal.columns)
+    eyes.columns = map(str.lower, eyes.columns)
+    temperature.columns = map(str.lower, temperature.columns)
+
+    # drop unnamed
+    verbal = verbal.loc[:, ~verbal.columns.str.contains('^unnamed')]
+    eyes = eyes.loc[:, ~eyes.columns.str.contains('^unnamed')]
+    temperature = temperature.loc[:, ~temperature.columns.str.contains('^unnamed')]
+
+    verbal = verbal.drop(columns=['observationoffset', 'origin'])
+    eyes = eyes.drop(columns=['observationoffset', 'origin'])
+    temperature = temperature.drop(columns=['observationoffset', 'origin'])
 
     # drop nan rows
     verbal = verbal.dropna()
@@ -90,6 +133,7 @@ def get_motor_gcs(gcs_filename):
 
     # transform gcs to have same labels as other time series data
     gcs = gcs.rename(columns={'Key': 'key', 'Value': 'value', 'observationoffset': 'offset'})
+    gcs = gcs.drop(columns=['origin'])
 
     # drop nan rows
     gcs = gcs.dropna()
@@ -117,25 +161,23 @@ def get_demographics(dem_filename):
 
 def process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, temp, summarization_int=1):
     # put all the ts data into the same dataframe
-    ts_data = pd.DataFrame(columns=['patientunitstayid', 'key', 'value', 'offset'])
+    ts_data = pd.DataFrame(columns=['patientunitstayid', 'offset', 'key', 'value'])
     hr['key'] = 'hr'
     resp['key'] = 'resp'
     sao2['key'] = 'sao2'
     gcs['key'] = 'gcs'
-    systolic['key'] = 'systolic'
-    diastolic['key'] = 'diastolic'
-    meanbp['key'] = 'meanbp'
+    systolic['key'] = 'noninvasivesystolic'
+    diastolic['key'] = 'noninvasivediastolic'
+    meanbp['key'] = 'noninvasivemean'
     verbal['key'] = 'verbal'
     eyes['key'] = 'eyes'
     temp['key'] = 'temp'
 
-    ts_data = ts_data.merge(hr, how = 'outer').merge(resp, how = 'outer').merge(sao2,
-            how = 'outer').merge(gcs, how = 'outer').merge(systolic, how = 'outer').merge(diastolic,
-            how = 'outer').merge(meanbp, how = 'outer').merge(verbal, how = 'outer').merge(eyes,
+    ts_data = ts_data.merge(hr, how='outer').merge(resp, how = 'outer').merge(sao2,
+            how = 'outer').merge(gcs, how = 'outer').merge(systolic,
+            how = 'outer').merge(diastolic, how = 'outer').merge(meanbp,
+            how = 'outer').merge(verbal, how = 'outer').merge(eyes,
             how = 'outer').merge(temp, how = 'outer')
-
-    # drop extra columns, nan rows
-    ts_data = ts_data.drop(columns=['origin']).dropna()
 
     # calculate bins, drop offset, calculate bin avg
     ts_data['offset_bin'] = ts_data['offset'] // summarization_int
@@ -150,7 +192,7 @@ def process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, t
         return df.reindex(index=np.arange(num_bins).astype(int))
 
     # set bin as index and reindex
-    ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.lower().str.contains('^unnamed')]
     ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(rein).reset_index()
 
     # fill missing bins, drop patients with no measurements for any of the features
@@ -395,7 +437,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
         # create dataframe to hold all time series data
-        ts_data = process_ts(hr, resp, sao2, gcs)#, systolic, diastolic, meanbp, verbal, eyes, temp)
+        ts_data = process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, temp)
 
         # process and reduce dimensionality of infusion and medication data
         # TODO figure out if this step can be placed where we do the second fillna

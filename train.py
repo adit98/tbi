@@ -289,6 +289,8 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
 
     num_bins = 24 // summarization_int
 
+    print(X_ts.columns)
+
     # get individual ts components and stack values horizontally
     X_hr = X_ts[['patientunitstayid', 'offset_bin', 'hr']].pivot(index='patientunitstayid',
         columns='offset_bin', values='hr').values
