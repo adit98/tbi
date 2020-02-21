@@ -342,7 +342,7 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
         clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.8,
-                         solver='saga', C=.3)
+                         solver='saga', C=.2)
         clf.fit(X, y)
         return clf
 
@@ -577,16 +577,16 @@ def main():
         # save files (train)
         np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
         np.save(os.path.join(results_dir, exp_num, 'train_thresholds_all.npy'), train_thresholds)
-        np.save(os.path.join(results_dir, exp_num, 'train_auc_all.npy'), auc_all)
-        np.save(os.path.join(results_dir, exp_num, 'train_fpr_all.npy'), fpr_all)
-        np.save(os.path.join(results_dir, exp_num, 'train_tpr_all.npy'), tpr_all)
+        np.save(os.path.join(results_dir, exp_num, 'train_auc_all.npy'), train_auc_all)
+        np.save(os.path.join(results_dir, exp_num, 'train_fpr_all.npy'), train_fpr_all)
+        np.save(os.path.join(results_dir, exp_num, 'train_tpr_all.npy'), train_tpr_all)
 
         # save files (test)
         np.save(os.path.join(results_dir, exp_num, 'test_scores.npy'), test_scores)
         np.save(os.path.join(results_dir, exp_num, 'test_thresholds_all.npy'), test_thresholds)
-        np.save(os.path.join(results_dir, exp_num, 'test_auc_all.npy'), auc_all)
-        np.save(os.path.join(results_dir, exp_num, 'test_fpr_all.npy'), fpr_all)
-        np.save(os.path.join(results_dir, exp_num, 'test_tpr_all.npy'), tpr_all)
+        np.save(os.path.join(results_dir, exp_num, 'test_auc_all.npy'), test_auc_all)
+        np.save(os.path.join(results_dir, exp_num, 'test_fpr_all.npy'), test_fpr_all)
+        np.save(os.path.join(results_dir, exp_num, 'test_tpr_all.npy'), test_tpr_all)
 
 if __name__ == "__main__":
     main()
