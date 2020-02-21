@@ -352,13 +352,13 @@ def score(X_train, y_train, X_test, y_test, clf):
     # train metrics
     train_score = clf.score(X_train, y_train)
     y_pred_train = clf.predict_proba(X_train)
-    train_fpr, train_tpr, train_thresholds = roc_curve(y_train, y_pred_train[:, 0])
+    train_fpr, train_tpr, train_thresholds = roc_curve(y_train, y_pred_train[:, 1])
     train_auc = roc_auc_score(y_train, y_pred_train[:, 1])
 
     # test metrics
     test_score = clf.score(X_test, y_test)
     y_pred_test = clf.predict_proba(X_test)
-    test_fpr, test_tpr, test_thresholds = roc_curve(y_test, y_pred_test[:, 0])
+    test_fpr, test_tpr, test_thresholds = roc_curve(y_test, y_pred_test[:, 1])
     test_auc = roc_auc_score(y_test, y_pred_test[:, 1])
 
     return train_score, train_auc, train_thresholds, train_fpr, train_tpr, \
@@ -534,36 +534,36 @@ def main():
         train_auc_all.append(train_auc)
         train_fpr_all.append(train_fpr)
         train_tpr_all.append(train_tpr)
-        train_thresholds_all.append(train_thresholds[:, None].T)
+        train_thresholds_all.append(train_thresholds)
 
         # test metrics
         test_scores.append(test_score)
         test_auc_all.append(test_auc)
         test_fpr_all.append(test_fpr)
         test_tpr_all.append(test_tpr)
-        test_thresholds_all.append(test_thresholds[:, None].T)
+        test_thresholds_all.append(test_thresholds)
 
         # model metrics 
-        coeff_all.append(model.coef_)
+        coeff_all.append(model.coef_[:, None].T)
 
     # stack arrays
 
     # train metrics
     train_scores=np.vstack(train_scores)
     train_auc_all=np.vstack(train_auc_all)
-    train_tpr_all=np.hstack(train_tpr_all)
-    train_fpr_all=np.hstack(train_fpr_all)
-    train_thresholds_all = np.hstack(train_thresholds_all)
+    #train_tpr_all=np.vstack(train_tpr_all)
+    #train_fpr_all=np.vstack(train_fpr_all)
+    #train_thresholds_all = np.vstack(train_thresholds_all)
 
     # test metrics
     test_scores=np.vstack(test_scores)
     test_auc_all=np.vstack(test_auc_all)
-    test_tpr_all=np.hstack(test_tpr_all)
-    test_fpr_all=np.hstack(test_fpr_all)
-    test_thresholds_all = np.hstack(test_thresholds_all)
+    #test_tpr_all=np.vstack(test_tpr_all)
+    #test_fpr_all=np.vstack(test_fpr_all)
+    #test_thresholds_all = np.vstack(test_thresholds_all)
 
     # model metrics
-    coeff_all = np.hstack(model.coef_)
+    coeff_all = np.vstack(model.coef_)
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
@@ -576,14 +576,14 @@ def main():
 
         # save files (train)
         np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
-        np.save(os.path.join(results_dir, exp_num, 'train_thresholds_all.npy'), train_thresholds)
+        np.save(os.path.join(results_dir, exp_num, 'train_thresholds_all.npy'), train_thresholds_all)
         np.save(os.path.join(results_dir, exp_num, 'train_auc_all.npy'), train_auc_all)
         np.save(os.path.join(results_dir, exp_num, 'train_fpr_all.npy'), train_fpr_all)
         np.save(os.path.join(results_dir, exp_num, 'train_tpr_all.npy'), train_tpr_all)
 
         # save files (test)
         np.save(os.path.join(results_dir, exp_num, 'test_scores.npy'), test_scores)
-        np.save(os.path.join(results_dir, exp_num, 'test_thresholds_all.npy'), test_thresholds)
+        np.save(os.path.join(results_dir, exp_num, 'test_thresholds_all.npy'), test_thresholds_all)
         np.save(os.path.join(results_dir, exp_num, 'test_auc_all.npy'), test_auc_all)
         np.save(os.path.join(results_dir, exp_num, 'test_fpr_all.npy'), test_fpr_all)
         np.save(os.path.join(results_dir, exp_num, 'test_tpr_all.npy'), test_tpr_all)
