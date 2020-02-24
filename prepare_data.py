@@ -179,15 +179,12 @@ def process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
         meanbp['key'] = 'noninvasivemean'
 
     if verbal is not None:
-        print("using verbal")
         verbal['key'] = 'verbal'
 
     if eyes is not None:
-        print("using eyes")
         eyes['key'] = 'eyes'
 
     if temp is not None:
-        print("using temp")
         temp['key'] = 'temp'
 
     ts_data = ts_data.merge(hr, how='outer').merge(resp, how = 'outer').merge(sao2,
@@ -384,9 +381,11 @@ def process_aperiodic(systolic, diastolic, meanbp):
 
     #TODO check this assumption
     # fill patients' missing aperiodic values with avg value of that aperiodic
-    aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()),
-            axis=1).drop(columns=['patientunitstayid'])
-    aperiodic_data = pd.concat([aperiodic_cts, aperiodic_avgs], axis=1)
+    #aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()),
+    #        axis=1).drop(columns=['patientunitstayid'])
+    aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+    #aperiodic_data = pd.concat([aperiodic_cts, aperiodic_avgs], axis=1)
+    aperiodic_data = aperiodic_avgs
 
     return aperiodic_data
 
@@ -556,7 +555,13 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
         lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
 
-        # fill the rest of the patients aperiodic data
+        # fill the rest of the patients lab data
+        #aperiodic_cts = aperiodic_data.iloc[:, :aperiodic_data.shape[0]//2]
+        #aperiodic_cts = aperiodic_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+        #aperiodic_avgs = aperiodic_data.iloc[:, aperiodic_data.shape[0]//2:]
+        #aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+        #aperiodic_data = pd.concat([aperiodic_cts, aperiodic_avgs], axis=1)
+        #aperiodic_data = aperiodic_data.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
         aperiodic_data = aperiodic_data.apply(lambda x: x.fillna(x.median()), axis=1)
 
         ts_data.to_csv(os.path.join(processed_loc, 'ts_processed.csv'))
