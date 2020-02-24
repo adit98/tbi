@@ -159,25 +159,58 @@ def get_demographics(dem_filename):
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
     return demographic_all
 
-def process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, temp, summarization_int=1):
+def process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
+        verbal=None, eyes=None, temp=None, summarization_int=1):
     # put all the ts data into the same dataframe
     ts_data = pd.DataFrame(columns=['patientunitstayid', 'offset', 'key', 'value'])
     hr['key'] = 'hr'
     resp['key'] = 'resp'
     sao2['key'] = 'sao2'
     gcs['key'] = 'gcs'
-    systolic['key'] = 'noninvasivesystolic'
-    diastolic['key'] = 'noninvasivediastolic'
-    meanbp['key'] = 'noninvasivemean'
-    verbal['key'] = 'verbal'
-    eyes['key'] = 'eyes'
-    temp['key'] = 'temp'
+
+    # add optional time series
+    if systolic is not None:
+        systolic['key'] = 'noninvasivesystolic'
+
+    if diastolic is not None:
+        diastolic['key'] = 'noninvasivediastolic'
+
+    if meanbp is not None:
+        meanbp['key'] = 'noninvasivemean'
+
+    if verbal is not None:
+        print("using verbal")
+        verbal['key'] = 'verbal'
+
+    if eyes is not None:
+        print("using eyes")
+        eyes['key'] = 'eyes'
+
+    if temp is not None:
+        print("using temp")
+        temp['key'] = 'temp'
 
     ts_data = ts_data.merge(hr, how='outer').merge(resp, how = 'outer').merge(sao2,
-            how = 'outer').merge(gcs, how = 'outer').merge(systolic,
-            how = 'outer').merge(diastolic, how = 'outer').merge(meanbp,
-            how = 'outer').merge(verbal, how = 'outer').merge(eyes,
-            how = 'outer').merge(temp, how = 'outer')
+            how = 'outer').merge(gcs, how = 'outer')
+
+    # merge any of the optional time series
+    if systolic is not None:
+        ts_data = ts_data.merge(systolic, how = 'outer')
+        
+    if diastolic is not None:
+        ts_data = ts_data.merge(diastolic, how = 'outer')
+
+    if meanbp is not None:
+        ts_data = ts_data.merge(meanbp, how = 'outer')
+
+    if verbal is not None:
+        ts_data = ts_data.merge(verbal, how = 'outer')
+
+    if eyes is not None:
+        ts_data = ts_data.merge(eyes, how = 'outer')
+
+    if temp is not None:
+        ts_data = ts_data.merge(temp, how = 'outer')
 
     # calculate bins, drop offset, calculate bin avg
     ts_data['offset_bin'] = ts_data['offset'] // summarization_int
@@ -323,6 +356,40 @@ def process_medication(med_data):
 
     return med_data
 
+def process_aperiodic(systolic, diastolic, meanbp):
+    # rename columns
+    systolic['sys'] = systolic['value']
+    diastolic['dias'] = diastolic['value']
+    meanbp['bp'] = meanbp['value']
+
+    # drop value column
+    systolic = systolic.drop(columns=['value'])
+    diastolic = diastolic.drop(columns=['value'])
+    meanbp = meanbp.drop(columns=['value'])
+
+    aperiodic_data = systolic.merge(diastolic, how='outer').merge(meanbp, how='outer')
+
+    # get counts of each aperiodic for each patient
+    aperiodic_cts = aperiodic_data.groupby('patientunitstayid').count().reset_index()
+
+    # get avg aperiodic value for each patient
+    aperiodic_avgs = aperiodic_data.groupby('patientunitstayid').mean().reset_index()
+
+    # drop aperiodics that <80% of patients get
+    aperiodic_cts = aperiodic_cts[aperiodic_cts.columns[aperiodic_cts.mean() > 0.8]]
+    aperiodic_avgs = aperiodic_avgs[aperiodic_cts.columns[aperiodic_cts.mean() > 0.8]]
+
+    # fill patients missing aperiodics with 0s
+    aperiodic_cts = aperiodic_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+
+    #TODO check this assumption
+    # fill patients' missing aperiodic values with avg value of that aperiodic
+    aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()),
+            axis=1).drop(columns=['patientunitstayid'])
+    aperiodic_data = pd.concat([aperiodic_cts, aperiodic_avgs], axis=1)
+
+    return aperiodic_data
+
 def process_dem(demographic):
     # just get hospitaldischargelocation
     died = demographic.loc[:, ['patientunitstayid', 'hospitaldischargelocation',
@@ -386,7 +453,8 @@ def process_dem(demographic):
     return dem_data, discharge_location, died
 
 '''Wrapper for getting processed data, if we need to reload we do so here'''
-def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int=1):
+def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int=1,
+        use_ts_nursecharting=True, use_ts_aperiodic=False):
     # load data from individual component files if available
     if not rld:
         hr = pd.read_csv(os.path.join(loaded_loc, 'hr.csv'))
@@ -437,7 +505,19 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
         # create dataframe to hold all time series data
-        ts_data = process_ts(hr, resp, sao2, gcs, systolic, diastolic, meanbp, verbal, eyes, temp)
+        if use_ts_nursecharting:
+            if use_ts_aperiodic:
+                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes,
+                        temp=temp, systolic=systolic, diastolic=diastolic, meanbp=meanbp)
+
+            else:
+                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
+
+        else:
+            ts_data = process_ts(hr, resp, sao2, gcs)
+        
+        # process aperiodic data
+        aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
 
         # process and reduce dimensionality of infusion and medication data
         # TODO figure out if this step can be placed where we do the second fillna
@@ -458,6 +538,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         medication_data = medication_data.set_index('patientunitstayid').reindex(patient_list)
         infusion_data = infusion_data.set_index('patientunitstayid').reindex(patient_list)
         dem_data = dem_data.set_index('patientunitstayid').reindex(patient_list)
+        aperiodic_data = aperiodic_data.set_index('patientunitstayid').reindex(patient_list)
 
         # sort ts data (don't need to reindex since we inner joined on this patient list)
         ts_data = ts_data.sort_values(by=['patientunitstayid', 'offset_bin'])
@@ -475,6 +556,9 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
         lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
 
+        # fill the rest of the patients aperiodic data
+        aperiodic_data = aperiodic_data.apply(lambda x: x.fillna(x.median()), axis=1)
+
         ts_data.to_csv(os.path.join(processed_loc, 'ts_processed.csv'))
         lab_data.to_csv(os.path.join(processed_loc, 'lab_processed.csv'))
         medication_data.to_csv(os.path.join(processed_loc, 'medication_processed.csv'))
@@ -482,6 +566,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data.to_csv(os.path.join(processed_loc, 'dem_processed.csv'))
         mort_data.to_csv(os.path.join(processed_loc, 'mort_processed.csv'))
         discharge_data.to_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
+        aperiodic_data.to_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
 
     else:
         ts_data = pd.read_csv(os.path.join(processed_loc, 'ts_processed.csv'))
@@ -491,6 +576,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_processed.csv'))
         mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_processed.csv'))
         discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
+        aperiodic_data = pd.read_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
 
         # get patient list and put into dataframe
         patient_list = lab_data['patientunitstayid'].values.flatten()
@@ -505,6 +591,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     medication_data = medication_data.loc[:,
             ~medication_data.columns.astype(str).str.contains('^Unnamed')]
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^Unnamed')]
+    aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^Unnamed')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^Unnamed')]
 
     # drop offset columns
@@ -514,6 +601,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
             ~medication_data.columns.astype(str).str.contains('^offset')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset')]
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^offset')]
+    aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^offset')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^offset')]
 
     # drop index columns
@@ -525,5 +613,5 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^index')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^index')]
 
-    return ts_data, lab_data, medication_data, infusion_data, dem_data, \
+    return ts_data, lab_data, medication_data, infusion_data, dem_data, aperiodic_data, \
         discharge_data, mort_data, final_gcs, patient_list
