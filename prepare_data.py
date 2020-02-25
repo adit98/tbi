@@ -244,18 +244,20 @@ def process_lab(lab_data):
     # get avg lab value for each patient
     lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
 
-    # drop labs that <80% of patients get
-    lab_cts = lab_cts[lab_cts.columns[lab_cts.mean() > 0.8]]
-    lab_avgs = lab_avgs[lab_cts.columns[lab_cts.mean() > 0.8]]
+    # drop labs that <60% of patients get
+    lab_cts = lab_cts[lab_cts.columns[lab_cts.mean() > 0.6]]
+    lab_avgs = lab_avgs[lab_cts.columns[lab_cts.mean() > 0.6]]
 
     # fill patients missing labs with 0s
     lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
 
     #TODO check this assumption
     # fill patients' missing lab values with avg value of that lab
-    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()),
-            axis=1).drop(columns=['patientunitstayid'])
-    lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+    #lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()),
+    #        axis=1).drop(columns=['patientunitstayid'])
+    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+    #lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+    lab_data = lab_avgs
 
     return lab_data
 
@@ -372,9 +374,9 @@ def process_aperiodic(systolic, diastolic, meanbp):
     # get avg aperiodic value for each patient
     aperiodic_avgs = aperiodic_data.groupby('patientunitstayid').mean().reset_index()
 
-    # drop aperiodics that <80% of patients get
-    aperiodic_cts = aperiodic_cts[aperiodic_cts.columns[aperiodic_cts.mean() > 0.8]]
-    aperiodic_avgs = aperiodic_avgs[aperiodic_cts.columns[aperiodic_cts.mean() > 0.8]]
+    # drop aperiodics that <50% of patients get
+    aperiodic_cts = aperiodic_cts[aperiodic_cts.columns[aperiodic_cts.mean() > 0.5]]
+    aperiodic_avgs = aperiodic_avgs[aperiodic_cts.columns[aperiodic_cts.mean() > 0.5]]
 
     # fill patients missing aperiodics with 0s
     aperiodic_cts = aperiodic_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
@@ -388,6 +390,42 @@ def process_aperiodic(systolic, diastolic, meanbp):
     aperiodic_data = aperiodic_avgs
 
     return aperiodic_data
+
+def process_nc(verbal, eyes, temp):
+    # rename columns
+    verbal['verbal'] = verbal['value']
+    eyes['eyes'] = eyes['value']
+    temp['temp'] = temp['value']
+
+    # drop value column
+    verbal = verbal.drop(columns=['value'])
+    eyes = eyes.drop(columns=['value'])
+    temp = temp.drop(columns=['value'])
+
+    nc_data = verbal.merge(eyes, how='outer').merge(temp, how='outer')
+
+    # get counts of each nc for each patient
+    nc_cts = nc_data.groupby('patientunitstayid').count().reset_index()
+
+    # get avg nc value for each patient
+    nc_avgs = nc_data.groupby('patientunitstayid').mean().reset_index()
+
+    # drop ncs that <80% of patients get
+    nc_cts = nc_cts[nc_cts.columns[nc_cts.mean() > 0.5]]
+    nc_avgs = nc_avgs[nc_cts.columns[nc_cts.mean() > 0.5]]
+
+    # fill patients missing ncs with 0s
+    nc_cts = nc_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+
+    #TODO check this assumption
+    # fill patients' missing nc values with avg value of that nc
+    #nc_avgs = nc_avgs.apply(lambda x: x.fillna(x.median()),
+    #        axis=1).drop(columns=['patientunitstayid'])
+    nc_avgs = nc_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+    #nc_data = pd.concat([nc_cts, nc_avgs], axis=1)
+    nc_data = nc_avgs
+
+    return nc_data
 
 def process_dem(demographic):
     # just get hospitaldischargelocation
@@ -511,12 +549,17 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
 
             else:
                 ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
+                # process aperiodic data
+                aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
 
         else:
             ts_data = process_ts(hr, resp, sao2, gcs)
-        
-        # process aperiodic data
-        aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
+
+            # process nc data
+            nc_data = process_nc(verbal, eyes, temp)
+
+            # process aperiodic data
+            aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
 
         # process and reduce dimensionality of infusion and medication data
         # TODO figure out if this step can be placed where we do the second fillna
@@ -537,7 +580,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         medication_data = medication_data.set_index('patientunitstayid').reindex(patient_list)
         infusion_data = infusion_data.set_index('patientunitstayid').reindex(patient_list)
         dem_data = dem_data.set_index('patientunitstayid').reindex(patient_list)
-        aperiodic_data = aperiodic_data.set_index('patientunitstayid').reindex(patient_list)
+
+        if not use_ts_nursecharting:
+            nc_data = nc_data.set_index('patientunitstayid').reindex(patient_list)
+
+        if not use_ts_aperiodic:
+            aperiodic_data = aperiodic_data.set_index('patientunitstayid').reindex(patient_list)
 
         # sort ts data (don't need to reindex since we inner joined on this patient list)
         ts_data = ts_data.sort_values(by=['patientunitstayid', 'offset_bin'])
@@ -549,20 +597,13 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         infusion_data = infusion_data.fillna(0)
 
         # fill the rest of the patients lab data
-        lab_cts = lab_data.iloc[:, :lab_data.shape[0]//2]
-        lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
-        lab_avgs = lab_data.iloc[:, lab_data.shape[0]//2:]
-        lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
-        lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+        lab_data = lab_data.apply(lambda x: x.fillna(x.median()), axis=1)
 
-        # fill the rest of the patients lab data
-        #aperiodic_cts = aperiodic_data.iloc[:, :aperiodic_data.shape[0]//2]
-        #aperiodic_cts = aperiodic_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
-        #aperiodic_avgs = aperiodic_data.iloc[:, aperiodic_data.shape[0]//2:]
-        #aperiodic_avgs = aperiodic_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
-        #aperiodic_data = pd.concat([aperiodic_cts, aperiodic_avgs], axis=1)
-        #aperiodic_data = aperiodic_data.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
-        aperiodic_data = aperiodic_data.apply(lambda x: x.fillna(x.median()), axis=1)
+        if not use_ts_aperiodic:
+            aperiodic_data = aperiodic_data.apply(lambda x: x.fillna(x.median()), axis=1)
+
+        if not use_ts_nursecharting:
+            nc_data = nc_data.apply(lambda x: x.fillna(x.median()), axis=1)
 
         ts_data.to_csv(os.path.join(processed_loc, 'ts_processed.csv'))
         lab_data.to_csv(os.path.join(processed_loc, 'lab_processed.csv'))
@@ -571,7 +612,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data.to_csv(os.path.join(processed_loc, 'dem_processed.csv'))
         mort_data.to_csv(os.path.join(processed_loc, 'mort_processed.csv'))
         discharge_data.to_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
-        aperiodic_data.to_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
+
+        if not use_ts_aperiodic:
+            aperiodic_data.to_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
+
+        if not use_ts_nursecharting:
+            nc_data.to_csv(os.path.join(processed_loc, 'nc_processed.csv'))
 
     else:
         ts_data = pd.read_csv(os.path.join(processed_loc, 'ts_processed.csv'))
@@ -581,7 +627,12 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_processed.csv'))
         mort_data = pd.read_csv(os.path.join(processed_loc, 'mort_processed.csv'))
         discharge_data = pd.read_csv(os.path.join(processed_loc, 'discharge_processed.csv'))
-        aperiodic_data = pd.read_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
+
+        if not use_ts_aperiodic:
+            aperiodic_data = pd.read_csv(os.path.join(processed_loc, 'aperiodic_processed.csv'))
+
+        if not use_ts_nursecharting:
+            nc_data = pd.read_csv(os.path.join(processed_loc, 'nc_processed.csv'))
 
         # get patient list and put into dataframe
         patient_list = lab_data['patientunitstayid'].values.flatten()
@@ -596,7 +647,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     medication_data = medication_data.loc[:,
             ~medication_data.columns.astype(str).str.contains('^Unnamed')]
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^Unnamed')]
-    aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^Unnamed')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^Unnamed')]
 
     # drop offset columns
@@ -606,7 +656,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
             ~medication_data.columns.astype(str).str.contains('^offset')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset')]
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^offset')]
-    aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^offset')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^offset')]
 
     # drop index columns
@@ -618,5 +667,21 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     dem_data = dem_data.loc[:, ~dem_data.columns.str.contains('^index')]
     final_gcs = final_gcs.loc[:, ~final_gcs.columns.str.contains('^index')]
 
-    return ts_data, lab_data, medication_data, infusion_data, dem_data, aperiodic_data, \
+    if not use_ts_aperiodic:
+        aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^Unnamed')]
+        aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^offset')]
+        aperiodic_data = aperiodic_data.loc[:, ~aperiodic_data.columns.str.contains('^index')]
+
+    else:
+        aperiodic_data = None
+
+    if not use_ts_nursecharting:
+        nc_data = nc_data.loc[:, ~nc_data.columns.str.contains('^Unnamed')]
+        nc_data = nc_data.loc[:, ~nc_data.columns.str.contains('^offset')]
+        nc_data = nc_data.loc[:, ~nc_data.columns.str.contains('^index')]
+
+    else:
+        nc_data = None
+
+    return ts_data, lab_data, medication_data, infusion_data, dem_data, aperiodic_data, nc_data, \
         discharge_data, mort_data, final_gcs, patient_list

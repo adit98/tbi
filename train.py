@@ -228,12 +228,14 @@ def extract_ts(X_ts_train, X_ts_test, method='PCA', num_samples=5, summarization
         raise NotImplementedError
 
     # stack data - train
-    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train,
-        X_eyes_train, X_verbal_train, X_temp_train])
+    #X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train,
+    #    X_eyes_train, X_verbal_train, X_temp_train])
+    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
 
     # stack data - test
-    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test,
-        X_eyes_test, X_verbal_test, X_temp_test])
+    #X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test,
+    #    X_eyes_test, X_verbal_test, X_temp_test])
+    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
 
     return X_ts_train, X_ts_test
 
@@ -273,6 +275,17 @@ def extract_lab(X_lab_train, X_lab_test, method=None):
         X_lab_test = np.hstack([X_lab_cts_test, X_lab_avgs_test])
 
         return X_lab_train, X_lab_test
+
+def extract_nc(X_nc_train, X_nc_test, method=None):
+    # scaler - fit, transform train data
+    nc_scaler = StandardScaler()
+    X_nc_train = nc_scaler.fit_transform(X_nc_train)
+
+    # transform test data
+    X_nc_test = nc_scaler.transform(X_nc_test)
+
+    if method is None:
+        return X_nc_train, X_nc_test
 
 def extract_aperiodic(X_aperiodic_train, X_aperiodic_test, method=None):
     # scaler - fit, transform train data
@@ -416,8 +429,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.6,
-                solver='saga', C=.1)
+        clf = LogisticRegression(max_iter=800, penalty='elasticnet', l1_ratio=0.6,
+                solver='saga', C=.2)
         clf.fit(X, y)
         return clf
 
@@ -440,7 +453,7 @@ def score(X_train, y_train, X_test, y_test, clf):
             test_score, test_auc, test_thresholds, test_fpr, test_tpr
 
 def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarization_int):
-    X_ts, X_lab, X_med, X_inf, X_dem, X_aperiodic, y_discharge, y_mort, y_gcs, patient_list \
+    X_ts, X_lab, X_med, X_inf, X_dem, X_aperiodic, X_nc, y_discharge, y_mort, y_gcs, patient_list \
             = get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int)
 
     # get number of features (subtract 2 because of patientunitstayid and offset_bin fields)
@@ -475,11 +488,14 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     # put them back into ts numpy array
     if num_features <= 4:
         X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs])
+        X_aperiodic = X_aperiodic.iloc[:, 1:].values
+        X_nc = X_nc.iloc[:, 1:].values
 
-    if num_features > 4:
-        X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs, X_eyes, X_verbal, X_temp])
+    elif num_features <= 7:
+        X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs, X_verbal, X_eyes, X_temp])
+        X_aperiodic = X_aperiodic.iloc[:, 1:].values
 
-    if num_features > 7:
+    else:
         X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs, X_systolic, X_diastolic, X_meanbp,
             X_eyes, X_verbal, X_temp])
 
@@ -488,14 +504,19 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     X_med = X_med.iloc[:, 1:].values
     X_inf = X_inf.iloc[:, 1:].values
     X_dem = X_dem.iloc[:, 1:].values
-    X_aperiodic = X_aperiodic.iloc[:, 1:].values
 
     # combine all Xs to do train test split
     # save length of each component array for doing PCA every run
     num_components = [X_ts.shape[1], X_lab.shape[1], X_med.shape[1], X_inf.shape[1],
-            X_dem.shape[1], X_aperiodic.shape[1]]
+            X_dem.shape[1]]
 
-    X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem, X_aperiodic])
+    if num_features <= 4:
+        num_components.append(X_nc.shape[1], X_aperiodic.shape[1])
+        X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem, X_nc, X_aperiodic])
+
+    elif num_features <= 7:
+        num_components.append(X_aperiodic.shape[1])
+        X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem, X_aperiodic])
 
     return X_stacked, y_gcs, num_components
 
@@ -587,27 +608,57 @@ def main():
         X_lab_train = X_train[:, :num_components[1]]
         X_med_train = X_train[:, :num_components[2]]
         X_inf_train = X_train[:, :num_components[3]]
-        X_aperiodic_train = X_train[:, :num_components[4]]
+
+        if len(num_components) > 5:
+            X_nc_train = X_train[:, :num_components[4]]
+            X_aperiodic_train = X_train[:, :num_components[5]]
+
+        elif len(num_components) > 4:
+            X_aperiodic_train = X_train[:, :num_components[4]]
+
 
         # get different components (test)
         X_ts_test = X_test[:, :num_components[0]]
         X_lab_test = X_test[:, :num_components[1]]
         X_med_test = X_test[:, :num_components[2]]
         X_inf_test = X_test[:, :num_components[3]]
-        X_aperiodic_test = X_test[:, :num_components[4]]
+
+        if len(num_components) > 5:
+            X_nc_test = X_test[:, :num_components[4]]
+            X_aperiodic_test = X_test[:, :num_components[5]]
+
+        elif len(num_components) > 4:
+            X_aperiodic_test = X_test[:, :num_components[4]]
 
         # extract features
         X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, method='PCA')
         X_lab_train, X_lab_test = extract_lab(X_lab_train, X_lab_test)
         X_med_train, X_med_test = extract_med(X_med_train, X_med_test)
         X_inf_train, X_inf_test = extract_inf(X_inf_train, X_inf_test)
-        X_aperiodic_train, X_aperiodic_test = extract_aperiodic(X_aperiodic_train, X_aperiodic_test)
 
-        # put everything back together
-        X_stacked_train = np.hstack([X_ts_train, X_lab_train, X_med_train,
-            X_inf_train, X_aperiodic_train])
-        X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test,
-            X_inf_test, X_aperiodic_test])
+        if len(num_components) > 5:
+            X_nc_train, X_nc_test = extract_nc(X_nc_train, X_nc_test)
+            X_aperiodic_train, X_aperiodic_test = extract_aperiodic(X_aperiodic_train, X_aperiodic_test)
+
+            # put everything back together
+            X_stacked_train = np.hstack([X_ts_train, X_lab_train, X_med_train,
+                X_inf_train, X_nc_train, X_aperiodic_train])
+            X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test,
+                X_inf_test, X_nc_test, X_aperiodic_test])
+
+        elif len(num_components) > 4:
+            X_aperiodic_train, X_aperiodic_test = extract_aperiodic(X_aperiodic_train, X_aperiodic_test)
+
+            # put everything back together
+            X_stacked_train = np.hstack([X_ts_train, X_lab_train, X_med_train,
+                X_inf_train, X_aperiodic_train])
+            X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test,
+                X_inf_test, X_aperiodic_test])
+
+        else:
+            # put everything back together
+            X_stacked_train = np.hstack([X_ts_train, X_lab_train, X_med_train, X_inf_train])
+            X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test, X_inf_test])
 
         # resample data
         X_stacked_train, y_train = resample_data(X_stacked_train, y_train)

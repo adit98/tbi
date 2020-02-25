@@ -1,0 +1,4 @@
+Time Series Features: hr, resp, sao2, gcs
+Normalization Strategy: 0 mean 1 variance
+Extra Features: Lab (>60%) - avgs only, Medication (extracted with gtc code, >20%), Infusion (longest word, >1%),
+    Demographic (age, gender), Aperiodic (systolic, diastolic, meanbp) - avgs only
