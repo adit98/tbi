@@ -546,6 +546,8 @@ def main():
     parser.add_argument('-s', '--summarization_int', help='binning interval', default=1)
     parser.add_argument('-d', '--debug', help="debug mode, don't write", default=False,
             action='store_true')
+    parser.add_argument('-m', dest='method', help="select ts feature extraction method",
+            required=False, default='PCA')
     args = parser.parse_args()
 
     # check if loaded/processed dirs exist, check if any files are in them
@@ -645,7 +647,7 @@ def main():
             X_aperiodic_test = X_test[:, :num_components[4]]
 
         # extract features
-        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='tsfresh')
+        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method=args.method)
         X_lab_train, X_lab_test = extract_lab(X_lab_train, X_lab_test)
         X_med_train, X_med_test = extract_med(X_med_train, X_med_test)
         X_inf_train, X_inf_test = extract_inf(X_inf_train, X_inf_test)
