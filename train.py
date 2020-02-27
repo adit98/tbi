@@ -11,9 +11,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.utils import resample
+from tsfresh.transformers import FeatureSelector
 from tqdm import tqdm
 
-def extract_ts(X_ts_train, X_ts_test, method='PCA', num_samples=5, summarization_int=1):
+def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples=5, summarization_int=1):
     num_groups = X_ts_train.shape[1] // (24 // summarization_int)
 
     # separate into individual (train)
@@ -223,6 +224,19 @@ def extract_ts(X_ts_train, X_ts_test, method='PCA', num_samples=5, summarization
         X_gcs_test = gcs_boss.transform(X_gcs_test)
 
         raise NotImplementedError
+
+    elif method == 'tsfresh':
+        # Selecting train features
+        X_presel_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
+        selector = FeatureSelector()
+        selector.fit(X_presel_train, y_train)
+        X_ts_train = selector.transform(X_presel_train)
+
+        # Selecting test features
+        X_presel_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
+        X_ts_test = selector.transform(X_presel_test)
+        return X_ts_train, X_ts_test
+        
 
     else:
         raise NotImplementedError
@@ -631,7 +645,7 @@ def main():
             X_aperiodic_test = X_test[:, :num_components[4]]
 
         # extract features
-        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, method='PCA')
+        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='tsfresh')
         X_lab_train, X_lab_test = extract_lab(X_lab_train, X_lab_test)
         X_med_train, X_med_test = extract_med(X_med_train, X_med_test)
         X_inf_train, X_inf_test = extract_inf(X_inf_train, X_inf_test)
