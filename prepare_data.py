@@ -397,10 +397,12 @@ def process_nc(verbal, eyes, temp):
     eyes['eyes'] = eyes['value']
     temp['temp'] = temp['value']
 
+    print(verbal.columns)
+
     # drop value column
-    verbal = verbal.drop(columns=['value'])
-    eyes = eyes.drop(columns=['value'])
-    temp = temp.drop(columns=['value'])
+    verbal = verbal.drop(columns=['key', 'value'])
+    eyes = eyes.drop(columns=['key', 'value'])
+    temp = temp.drop(columns=['key', 'value'])
 
     nc_data = verbal.merge(eyes, how='outer').merge(temp, how='outer')
 
@@ -410,7 +412,7 @@ def process_nc(verbal, eyes, temp):
     # get avg nc value for each patient
     nc_avgs = nc_data.groupby('patientunitstayid').mean().reset_index()
 
-    # drop ncs that <80% of patients get
+    # drop ncs that <50% of patients get
     nc_cts = nc_cts[nc_cts.columns[nc_cts.mean() > 0.5]]
     nc_avgs = nc_avgs[nc_cts.columns[nc_cts.mean() > 0.5]]
 
@@ -491,7 +493,7 @@ def process_dem(demographic):
 
 '''Wrapper for getting processed data, if we need to reload we do so here'''
 def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summarization_int=1,
-        use_ts_nursecharting=True, use_ts_aperiodic=False):
+        use_ts_nursecharting=False, use_ts_aperiodic=False):
     # load data from individual component files if available
     if not rld:
         hr = pd.read_csv(os.path.join(loaded_loc, 'hr.csv'))

@@ -7,8 +7,10 @@ from prepare_data import *
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from pyts.transformation import BOSS
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
+
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.utils import resample
 from tsfresh.transformers import FeatureSelector
@@ -200,56 +202,53 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
         X_sao2_test = X_hr_reduced_test
         X_gcs_test = X_hr_reduced_test
 
-    elif method == 'BOSS':
-        # create PCA objects
-        hr_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
-                norm_std=True)
-        resp_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
-                norm_std=True)
-        sao2_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
-                norm_std=True)
-        gcs_boss = BOSS(n_bins=num_samples, window_size=0.5, sparse=False, norm_mean=True,
-                norm_std=True)
-
-        # fit pca on train data and transform
-        X_hr_train = hr_boss.fit_transform(X_hr_train)
-        X_resp_train = resp_boss.fit_transform(X_resp_train)
-        X_sao2_train = sao2_boss.fit_transform(X_sao2_train)
-        X_gcs_train = gcs_boss.fit_transform(X_gcs_train)
-
-        # transform test data
-        X_hr_test = hr_boss.transform(X_hr_test)
-        X_resp_test = resp_boss.transform(X_resp_test)
-        X_sao2_test = sao2_boss.transform(X_sao2_test)
-        X_gcs_test = gcs_boss.transform(X_gcs_test)
-
-        raise NotImplementedError
-
     elif method == 'tsfresh':
         # Selecting train features
-        X_presel_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
+        train_features = [X_hr_train, X_resp_train, X_sao2_train, X_gcs_train]
+        if num_groups > 4:
+            train_features.append(X_eyes_train)
+            train_features.append(X_verbal_train)
+            train_features.append(X_temp_train)
+
+        if num_groups > 7:
+            raise NotImplementedError
+
+        X_presel_train = np.hstack(train_features)
         selector = FeatureSelector()
         selector.fit(X_presel_train, y_train)
         X_ts_train = selector.transform(X_presel_train)
 
         # Selecting test features
-        X_presel_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
+        test_features = [X_hr_test, X_resp_test, X_sao2_test, X_gcs_test]
+        if num_groups > 4:
+            test_features.append(X_eyes_test)
+            test_features.append(X_verbal_test)
+            test_features.append(X_temp_test)
+
+        X_presel_test = np.hstack(test_features)
         X_ts_test = selector.transform(X_presel_test)
         return X_ts_train, X_ts_test
         
-
     else:
         raise NotImplementedError
 
     # stack data - train
-    #X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train,
-    #    X_eyes_train, X_verbal_train, X_temp_train])
-    X_ts_train = np.hstack([X_hr_train, X_resp_train, X_sao2_train, X_gcs_train])
+    train_features = [X_hr_train, X_resp_train, X_sao2_train, X_gcs_train]
+    if num_groups > 4:
+        train_features.append(X_eyes_train)
+        train_features.append(X_verbal_train)
+        train_features.append(X_temp_train)
+
+    X_ts_train = np.hstack(train_features)
 
     # stack data - test
-    #X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test,
-    #    X_eyes_test, X_verbal_test, X_temp_test])
-    X_ts_test = np.hstack([X_hr_test, X_resp_test, X_sao2_test, X_gcs_test])
+    test_features = [X_hr_test, X_resp_test, X_sao2_test, X_gcs_test]
+    if num_groups > 4:
+        test_features.append(X_eyes_test)
+        test_features.append(X_verbal_test)
+        test_features.append(X_temp_test)
+
+    X_ts_test = np.hstack(test_features)
 
     return X_ts_train, X_ts_test
 
@@ -443,10 +442,23 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=800, penalty='elasticnet', l1_ratio=0.6,
+        clf = LogisticRegression(max_iter=600, penalty='elasticnet', l1_ratio=0.6,
                 solver='saga', C=.2)
-        clf.fit(X, y)
-        return clf
+        params = {'C': np.linspace(0.01, 1, num=5).tolist(),
+                'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
+        gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
+        gs_log_reg.fit(X, y)
+        return gs_log_reg.best_estimator_
+
+    elif model_type == 'RF':
+        clf = RandomForestClassifier(max_depth=10, n_jobs=-1)
+        params = {'max_depth': np.arange(2, 16).tolist()}
+        gs_rf = GridSearchCV(clf, params, cv=5, scoring='accuracy', n_jobs=-1)
+        gs_rf.fit(X, y)
+        return gs_rf.best_estimator_
+
+    elif model_type == 'NN':
+        raise NotImplementedError
 
     raise NotImplementedError
 
@@ -525,7 +537,8 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
             X_dem.shape[1]]
 
     if num_features <= 4:
-        num_components.append(X_nc.shape[1], X_aperiodic.shape[1])
+        num_components.append(X_nc.shape[1])
+        num_components.append(X_aperiodic.shape[1])
         X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem, X_nc, X_aperiodic])
 
     elif num_features <= 7:
@@ -548,6 +561,8 @@ def main():
             action='store_true')
     parser.add_argument('-m', dest='method', help="select ts feature extraction method",
             required=False, default='PCA')
+    parser.add_argument('-c', dest='classifier', help="select classifier",
+            required=False, default='Logistic')
     args = parser.parse_args()
 
     # check if loaded/processed dirs exist, check if any files are in them
@@ -680,7 +695,7 @@ def main():
         X_stacked_train, y_train = resample_data(X_stacked_train, y_train)
 
         # train model
-        model = train(X_stacked_train, y_train)
+        model = train(X_stacked_train, y_train, model_type=args.classifier)
 
         # get scores
         train_score, train_auc, train_thresholds, train_fpr, train_tpr, \
@@ -709,16 +724,10 @@ def main():
     # train metrics
     train_scores=np.vstack(train_scores)
     train_auc_all=np.vstack(train_auc_all)
-    #train_tpr_all=np.vstack(train_tpr_all)
-    #train_fpr_all=np.vstack(train_fpr_all)
-    #train_thresholds_all = np.vstack(train_thresholds_all)
 
     # test metrics
     test_scores=np.vstack(test_scores)
     test_auc_all=np.vstack(test_auc_all)
-    #test_tpr_all=np.vstack(test_tpr_all)
-    #test_fpr_all=np.vstack(test_fpr_all)
-    #test_thresholds_all = np.vstack(test_thresholds_all)
 
     # model metrics
     coeff_all = np.vstack(model.coef_)
