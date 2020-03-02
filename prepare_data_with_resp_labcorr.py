@@ -169,7 +169,7 @@ def get_demographics(dem_filename):
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
     return demographic_all
 
-def process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
+def process_ts(lab_patients, hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
         verbal=None, eyes=None, temp=None, summarization_int=1):
     # put all the ts data into the same dataframe
     ts_data = pd.DataFrame(columns=['patientunitstayid', 'offset', 'key', 'value'])
@@ -218,6 +218,10 @@ def process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
 
     if temp is not None:
         ts_data = ts_data.merge(temp, how = 'outer')
+
+    # Finally merging on patients to discard any patients that are not in
+    # filtered lab (must have all labs that were done for at least 90% of patients
+    ts_data = ts_data.merge(lab_patients, how='inner')
 
     # calculate bins, drop offset, calculate bin avg
     ts_data['offset_bin'] = ts_data['offset'] // summarization_int
@@ -291,7 +295,7 @@ def process_lab(lab_data):
     #lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
     lab_data = lab_avgs
 
-    return lab_data
+    return patients_all_geq90, lab_data
 
 def process_resp(respiratory):
     # Loading respiratory data
@@ -620,19 +624,22 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
                 low_memory=False)
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
+        # Processing lab data first to get the patient list
+        patients, lab_data = process_lab(lab_data)
+
         # create dataframe to hold all time series data
         if use_ts_nursecharting:
             if use_ts_aperiodic:
-                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes,
+                ts_data = process_ts(patients, hr, resp, sao2, gcs, verbal=verbal, eyes=eyes,
                         temp=temp, systolic=systolic, diastolic=diastolic, meanbp=meanbp)
 
             else:
-                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
+                ts_data = process_ts(patients, hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
                 # process aperiodic data
                 aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
 
         else:
-            ts_data = process_ts(hr, resp, sao2, gcs)
+            ts_data = process_ts(patients, hr, resp, sao2, gcs)
 
             # process nc data
             nc_data = process_nc(verbal, eyes, temp)
@@ -644,7 +651,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         # TODO figure out if this step can be placed where we do the second fillna
         medication_data = process_medication(medication_data)
         infusion_data = process_infusion(infusion_data)
-        lab_data = process_lab(lab_data)
         resp_data = process_resp(resp_data)
 
         # TODO add discharge_data and mort_data as options in get_label
@@ -652,7 +658,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
 
         # get patient list - we include all patients from ts_data
         patient_list = ts_data[['patientunitstayid']].drop_duplicates().reset_index()
-        patient_list = lab_data.merge(patient_list, how='inner', on='patientunitstayid')[['patientunitstayid']]
         patient_list = np.sort(dem_data.merge(patient_list, how='inner')[['patientunitstayid']].values.flatten())
 
         # we will return the patient list so that the ts data can be ordered later
@@ -670,7 +675,6 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
             aperiodic_data = aperiodic_data.set_index('patientunitstayid').reindex(patient_list)
 
         # sort ts data (don't need to reindex since we inner joined on this patient list)
-        ts_data = ts_data[ts_data['patientunitstayid'].isin(patient_list.tolist())]
         ts_data = ts_data.sort_values(by=['patientunitstayid', 'offset_bin'])
 
         # fill the rest of the patients indicator variables with 0s
