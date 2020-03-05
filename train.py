@@ -377,34 +377,31 @@ def extract_dem(X_dem_train, X_dem_test, method=None):
     raise NotImplementedError
 
 # TODO fix this to work with different labels
-def get_labels(y_gcs = None, mort=False, mort_df = None):
-    if mort:
-        if mort_df is None:
+def get_labels(y_gcs = None, mort=False, mort_df = None, dis_loc = False):
+    if mort_df is None:
             raise ValueError("Must supply mort_df")
-
-        raise NotImplementedError
-
     if y_gcs is None:
         raise ValueError("Must supply y_gcs")
 
-    y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
-    y = y_gcs['Value'].values
-    mortal = y_gcs['unitdischargestatus'].values
-    # modify labels (positive (1) is bad outcome (GCS < 6))
-    y[np.logical_or(y < 6, mortal == 'Expired')] = 1
-    y[y == 6] = 0
+    if mort:
+        y = (mort_df['unitdischargestatus'].values == 'Expired').astype(int)
+    elif dis_loc:
+        awefiwoajefjiaw
+    else:   
+        y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
+        y = y_gcs['Value'].values
+        mortal = y_gcs['unitdischargestatus'].values
+        # modify labels (positive (1) is bad outcome (GCS < 6))
+        y[np.logical_or(y < 6, mortal == 'Expired')] = 1
+        y[y == 6] = 0
 
     return y
 
 # TODO also fix this to work with different labels
 def resample_data(X_train, y_train, mort=False, method='over'):
     if method == 'over':
-        if mort:
-            positive = np.argwhere(y_train == False).flatten()
-            negative = np.argwhere(y_train == True).flatten()
-        else:
-            positive = np.argwhere(y_train == 1).flatten()
-            negative = np.argwhere(y_train == 0).flatten()
+        positive = np.argwhere(y_train == 1).flatten()
+        negative = np.argwhere(y_train == 0).flatten()
 
         X_positive = np.hstack([X_train[positive], y_train[positive][:, None]])
         X_negative = np.hstack([X_train[negative], y_train[negative][:, None]])
@@ -417,12 +414,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
         y_train = stacked[:, -1]
 
     elif method == 'under':
-        if mort:
-            positive = np.argwhere(y_train == False).flatten()
-            negative = np.argwhere(y_train == True).flatten()
-        else:
-            positive = np.argwhere(y_train == 1).flatten()
-            negative = np.argwhere(y_train == 0).flatten()
+        positive = np.argwhere(y_train == 1).flatten()
+        negative = np.argwhere(y_train == 0).flatten()
 
         X_positive = np.hstack([X_train[positive], y_train[positive][:, None]])
         X_negative = np.hstack([X_train[negative], y_train[negative][:, None]])
@@ -447,8 +440,10 @@ def train(X, y, model_type='Logistic'):
         params = {'C': np.linspace(0.01, 1, num=5).tolist(),
                 'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
         gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
-        gs_log_reg.fit(X, y)
-        return gs_log_reg.best_estimator_
+        #gs_log_reg.fit(X, y)
+        clf.fit(X, y)
+        return clf
+        #return gs_log_reg.best_estimator_
 
     elif model_type == 'RF':
         clf = RandomForestClassifier(max_depth=10, n_jobs=-1)
@@ -610,6 +605,7 @@ def main():
 
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
     y = get_labels(y_gcs, False, mort_df)
+    print(mort_df.values)
 
     # create lists to hold metrics across runs
 
