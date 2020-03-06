@@ -455,6 +455,7 @@ def train(X, y, model_type='Logistic'):
                 'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
         #gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
         #gs_log_reg.fit(X, y)
+        X = np.where(np.isnan(X), np.ma.array(X, mask=np.isnan(X)).mean(axis=1)[:, np.newaxis], X)
         clf.fit(X, y)
         return clf
         #return gs_log_reg.best_estimator_
@@ -645,37 +646,39 @@ def main():
 
     # model metrics
     coeff_all = []
-
+    num_components2 = np.cumsum(num_components)
+    print(num_components2)
+    print(X_stacked.shape)
     for run in tqdm(range(args.num_runs)):
         # split data
         X_train, X_test, y_train, y_test = train_test_split(X_stacked, y, test_size=0.2)
 
         # get different components (train)
-        X_ts_train = X_train[:, :num_components[0]]
-        X_lab_train = X_train[:, :num_components[1]]
-        X_med_train = X_train[:, :num_components[2]]
-        X_inf_train = X_train[:, :num_components[3]]
+        X_ts_train = X_train[:, :num_components2[0]]
+        X_lab_train = X_train[:, num_components2[0]:num_components2[1]]
+        X_med_train = X_train[:, num_components2[1]:num_components2[2]]
+        X_inf_train = X_train[:, num_components2[2]:num_components2[3]]
 
         if len(num_components) > 5:
-            X_nc_train = X_train[:, :num_components[4]]
-            X_aperiodic_train = X_train[:, :num_components[5]]
+            X_nc_train = X_train[:, num_components2[3]:num_components2[4]]
+            X_aperiodic_train = X_train[:, num_components2[4]:num_components2[5]]
 
         elif len(num_components) > 4:
-            X_aperiodic_train = X_train[:, :num_components[4]]
+            X_aperiodic_train = X_train[:, num_components2[3]:num_components2[4]]
 
 
         # get different components (test)
-        X_ts_test = X_test[:, :num_components[0]]
-        X_lab_test = X_test[:, :num_components[1]]
-        X_med_test = X_test[:, :num_components[2]]
-        X_inf_test = X_test[:, :num_components[3]]
+        X_ts_test = X_test[:, :num_components2[0]]
+        X_lab_test = X_test[:, num_components2[0]:num_components2[1]]
+        X_med_test = X_test[:, num_components2[1]:num_components2[2]]
+        X_inf_test = X_test[:, num_components2[2]:num_components2[3]]
 
         if len(num_components) > 5:
-            X_nc_test = X_test[:, :num_components[4]]
-            X_aperiodic_test = X_test[:, :num_components[5]]
+            X_nc_test = X_test[:, num_components2[3]:num_components2[4]]
+            X_aperiodic_test = X_test[:, num_components2[4]:num_components2[5]]
 
         elif len(num_components) > 4:
-            X_aperiodic_test = X_test[:, :num_components[4]]
+            X_aperiodic_test = X_test[:, :num_components2[4]]
 
         # extract features
         X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method=args.method)
@@ -710,6 +713,8 @@ def main():
         # resample data
         X_stacked_train, y_train = resample_data(X_stacked_train, y_train)
 
+        X_stacked_train = np.where(np.isnan(X_stacked_train), np.ma.array(X_stacked_train, mask=np.isnan(X_stacked_train)).mean(axis=1)[:, np.newaxis], X_stacked_train)
+        X_stacked_test = np.where(np.isnan(X_stacked_test), np.ma.array(X_stacked_test, mask=np.isnan(X_stacked_test)).mean(axis=1)[:, np.newaxis], X_stacked_test)
         # train model
         model = train(X_stacked_train, y_train, model_type=args.classifier)
 
