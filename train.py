@@ -384,9 +384,22 @@ def get_labels(y_gcs = None, mort=False, mort_df = None, dis_loc = False):
         raise ValueError("Must supply y_gcs")
 
     if mort:
-        y = (mort_df['unitdischargestatus'].values == 'Expired').astype(int)
+        y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
+        y = y_gcs['Value'].values
+        mortal = y_gcs['unitdischargestatus'].values
+        y = np.logical_not(mortal == 'Expired').astype(int)
     elif dis_loc:
-        awefiwoajefjiaw
+        y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
+        y = y_gcs['Value'].values
+        disloc = y_gcs['unitdischargelocation'].values.astype(str)
+        a, b = np.unique(disloc, return_counts = True)
+        print(a)
+        print(b)
+        bad = np.array(['Death', 'Skilled Nursing Facility', 'Nursing Home'])
+        good = np.array(['Home'])
+        dislocNotBad = np.logical_not(np.isin(disloc, bad)).astype(int)
+        dislocGood = np.isin(disloc, good).astype(int)
+        y = dislocNotBad
     else:   
         y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
         y = y_gcs['Value'].values
@@ -435,11 +448,11 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=600, penalty='elasticnet', l1_ratio=0.6,
+        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.6,
                 solver='saga', C=.2)
         params = {'C': np.linspace(0.01, 1, num=5).tolist(),
                 'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
-        gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
+        #gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
         #gs_log_reg.fit(X, y)
         clf.fit(X, y)
         return clf
@@ -604,7 +617,7 @@ def main():
             loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
-    y = get_labels(y_gcs, False, mort_df)
+    y = get_labels(y_gcs, False, mort_df, False)
     print(mort_df.values)
 
     # create lists to hold metrics across runs
