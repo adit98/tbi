@@ -108,15 +108,28 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
         sao2_pca = PCA(n_components=num_samples)
         gcs_pca = PCA(n_components=num_samples)
 
+        hr_feat = ['hr_pca'+str(i) for i in range(num_samples)]
+        resp_feat = ['resp_pca'+str(i) for i in range(num_samples)]
+        sao2_feat = ['sao2_pca'+str(i) for i in range(num_samples)]
+        gcs_feat = ['gcs_pca'+str(i) for i in range(num_samples)]
+
         if num_groups > 4:
             eyes_pca = PCA(num_samples)
             verbal_pca = PCA(num_samples)
             temp_pca = PCA(num_samples)
 
+            eyes_feat = ['eyes_pca'+str(i) for i in range(num_samples)]
+            verbal_feat = ['verbal_pca'+str(i) for i in range(num_samples)]
+            temp_feat = ['temp_pca'+str(i) for i in range(num_samples)]
+
         if num_groups > 7:
             systolic_pca = PCA(num_samples)
             diastolic_pca = PCA(num_samples)
             meanbp_pca = PCA(num_samples)
+
+            systolic_feat = ['systolic_pca'+str(i) for i in range(num_samples)]
+            diastolic_feat = ['diastolic_pca'+str(i) for i in range(num_samples)]
+            meanbp_feat = ['meanbp_pca'+str(i) for i in range(num_samples)]
 
         # fit pca on train data and transform
         X_hr_train = hr_pca.fit_transform(X_hr_train)
@@ -218,6 +231,9 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
         selector.fit(X_presel_train, y_train)
         X_ts_train = selector.transform(X_presel_train)
 
+        # Creating feature vector
+        tsfresh_feat = ['tsfresh'+str(i) for i in range(X_ts_train.shape[1])]
+
         # Selecting test features
         test_features = [X_hr_test, X_resp_test, X_sao2_test, X_gcs_test]
         if num_groups > 4:
@@ -227,19 +243,25 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
 
         X_presel_test = np.hstack(test_features)
         X_ts_test = selector.transform(X_presel_test)
-        return X_ts_train, X_ts_test
+        return X_ts_train, X_ts_test, tsfresh_feat
         
     else:
         raise NotImplementedError
 
     # stack data - train
     train_features = [X_hr_train, X_resp_train, X_sao2_train, X_gcs_train]
+    ts_features = [hr_feat, resp_feat, sao2_feat, gcs_feat]
     if num_groups > 4:
         train_features.append(X_eyes_train)
         train_features.append(X_verbal_train)
         train_features.append(X_temp_train)
 
+        ts_features.append(eyes_feat)
+        ts_features.append(verbal_feat)
+        ts_features.append(temp_feat)
+
     X_ts_train = np.hstack(train_features)
+    ts_features = np.hstack(ts_features)
 
     # stack data - test
     test_features = [X_hr_test, X_resp_test, X_sao2_test, X_gcs_test]
@@ -250,7 +272,7 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
 
     X_ts_test = np.hstack(test_features)
 
-    return X_ts_train, X_ts_test
+    return X_ts_train, X_ts_test, ts_features
 
 def extract_lab(X_lab_train, X_lab_test, method=None):
     # scaler - fit, transform train data
@@ -447,8 +469,10 @@ def train(X, y, model_type='Logistic'):
         params = {'C': np.linspace(0.01, 1, num=5).tolist(),
                 'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
         gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
-        gs_log_reg.fit(X, y)
-        return gs_log_reg.best_estimator_
+#        gs_log_reg.fit(X, y)
+        clf.fit(X, y)
+        return clf
+#        return gs_log_reg.best_estimator_
 
     elif model_type == 'RF':
         clf = RandomForestClassifier(max_depth=10, n_jobs=-1)
@@ -525,6 +549,12 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
         X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs, X_systolic, X_diastolic, X_meanbp,
             X_eyes, X_verbal, X_temp])
 
+    lab_feat = X_lab.columns[1:]
+    med_feat = X_med.columns[1:]
+    inf_feat = X_inf.columns[1:]
+    dem_feat = X_dem.columns[1:]
+    resp_feat = X_resp_tb.columns[1:]
+
     # get other stuff, move to numpy
     X_lab = X_lab.iloc[:, 1:].values
     X_med = X_med.iloc[:, 1:].values
@@ -546,7 +576,7 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
         num_components.append(X_aperiodic.shape[1])
         X_stacked = np.hstack([X_ts, X_lab, X_resp_tb,  X_med, X_inf, X_dem, X_aperiodic])
 
-    return X_stacked, y_gcs, num_components
+    return X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat
 
 def main():
     # argument parser
@@ -606,8 +636,8 @@ def main():
     processed_dir = os.path.join(args.data_dir, 'loaded', 'processed')
     results_dir = 'model_metrics'
 
-    X_stacked, y_gcs, num_components = stack_data(args.reload, args.reprocess,
-            loaded_dir, processed_dir, args.data_dir, args.summarization_int)
+    X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat = stack_data(args.reload,
+        args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
     y = get_labels(y_gcs, False, mort_df)
@@ -630,40 +660,41 @@ def main():
 
     # model metrics
     coeff_all = []
+    num_components2 = np.cumsum(num_components)
 
-    for run in tqdm(range(args.num_runs)):
+    for run in tqdm(range(int(args.num_runs))):
         # split data
         X_train, X_test, y_train, y_test = train_test_split(X_stacked, y, test_size=0.2)
 
         # get different components (train)
-        X_ts_train = X_train[:, :num_components[0]]
-        X_lab_train = X_train[:, :num_components[1]]
-        X_med_train = X_train[:, :num_components[2]]
-        X_inf_train = X_train[:, :num_components[3]]
+        X_ts_train = X_train[:, :num_components2[0]]
+        X_lab_train = X_train[:, num_components2[0]:num_components2[1]]
+        X_med_train = X_train[:, num_components2[1]:num_components2[2]]
+        X_inf_train = X_train[:, num_components2[2]:num_components2[3]]
 
         if len(num_components) > 5:
-            X_nc_train = X_train[:, :num_components[4]]
-            X_aperiodic_train = X_train[:, :num_components[5]]
+            X_nc_train = X_train[:, num_components2[3]:num_components2[4]]
+            X_aperiodic_train = X_train[:, num_components2[4]:num_components2[5]]
 
         elif len(num_components) > 4:
-            X_aperiodic_train = X_train[:, :num_components[4]]
+            X_aperiodic_train = X_train[:, num_components2[3]:num_components2[4]]
 
 
         # get different components (test)
-        X_ts_test = X_test[:, :num_components[0]]
-        X_lab_test = X_test[:, :num_components[1]]
-        X_med_test = X_test[:, :num_components[2]]
-        X_inf_test = X_test[:, :num_components[3]]
+        X_ts_test = X_test[:, :num_components2[0]]
+        X_lab_test = X_test[:, num_components2[0]:num_components2[1]]
+        X_med_test = X_test[:, num_components2[1]:num_components2[2]]
+        X_inf_test = X_test[:, num_components2[2]:num_components2[3]]
 
         if len(num_components) > 5:
-            X_nc_test = X_test[:, :num_components[4]]
-            X_aperiodic_test = X_test[:, :num_components[5]]
+            X_nc_test = X_test[:, num_components2[3]:num_components2[4]]
+            X_aperiodic_test = X_test[:, num_components2[4]:num_components2[5]]
 
         elif len(num_components) > 4:
-            X_aperiodic_test = X_test[:, :num_components[4]]
+            X_aperiodic_test = X_test[:, :num_components2[4]]
 
         # extract features
-        X_ts_train, X_ts_test = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method=args.method)
+        X_ts_train, X_ts_test, ts_feat = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method=args.method)
         X_lab_train, X_lab_test = extract_lab(X_lab_train, X_lab_test)
         X_med_train, X_med_test = extract_med(X_med_train, X_med_test)
         X_inf_train, X_inf_test = extract_inf(X_inf_train, X_inf_test)
@@ -677,6 +708,12 @@ def main():
                 X_inf_train, X_nc_train, X_aperiodic_train])
             X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test,
                 X_inf_test, X_nc_test, X_aperiodic_test])
+            print(X_ts_train.shape)
+            print(X_lab_train.shape)
+            print(X_med_train.shape)
+            print(X_inf_train.shape)
+            print(X_nc_train.shape)
+            print(X_aperiodic_train.shape)
 
         elif len(num_components) > 4:
             X_aperiodic_train, X_aperiodic_test = extract_aperiodic(X_aperiodic_train, X_aperiodic_test)
@@ -695,6 +732,7 @@ def main():
         # resample data
         X_stacked_train, y_train = resample_data(X_stacked_train, y_train)
 
+        print(X_stacked_train.shape)
         # train model
         model = train(X_stacked_train, y_train, model_type=args.classifier)
 
@@ -731,7 +769,10 @@ def main():
     test_auc_all=np.vstack(test_auc_all)
 
     # model metrics
-    coeff_all = np.vstack(model.coef_)
+    coeff_all = np.asarray(coeff_all)
+    coefficients = np.zeros((coeff_all.shape[0], coeff_all.shape[1]))
+    coefficients = coeff_all[:,:,0,0]
+    coefficients = np.transpose(coefficients)
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
@@ -741,6 +782,9 @@ def main():
     if not args.debug:
         # make experiment dir
         os.makedirs(os.path.join('model_metrics', exp_num))
+
+        # save coefficients
+        np.save(os.path.join(results_dir, exp_num, 'coefficients.npy'), coefficients)
 
         # save files (train)
         np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
