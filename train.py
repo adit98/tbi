@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.utils import resample
 from tsfresh.transformers import FeatureSelector
@@ -461,14 +462,20 @@ def train(X, y, model_type='Logistic'):
 
     elif model_type == 'RF':
         clf = RandomForestClassifier(max_depth=10, n_jobs=-1)
-        params = {'max_depth': np.arange(2, 16).tolist()}
-        gs_rf = GridSearchCV(clf, params, cv=5, scoring='accuracy', n_jobs=-1)
-        gs_rf.fit(X, y)
-        return gs_rf.best_estimator_
-
+        #params = {'max_depth': np.arange(2, 16).tolist()}
+        #gs_rf = GridSearchCV(clf, params, cv=5, scoring='accuracy', n_jobs=-1)
+        #gs_rf.fit(X, y)
+        #return gs_rf.best_estimator_
+        clf.fit(X,y)
+        return clf
+    
     elif model_type == 'NN':
-        raise NotImplementedError
-
+        clf = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2))
+        #params = {'solver': [‘lbfgs’, ‘sgd’, ‘adam’], }
+        #gs_nn = GridSearchCV(clf, params)#, cv = 5, scoring = 'accuracy', n_jobs = -1)
+        clf.fit(X,y)
+        return clf
+    
     raise NotImplementedError
 
 def score(X_train, y_train, X_test, y_test, clf):
@@ -731,7 +738,8 @@ def main():
         test_thresholds_all.append(test_thresholds)
 
         # model metrics 
-        coeff_all.append(model.coef_[:, None].T)
+        if args.classifier != "RF" and args.classifier != "NN":
+            coeff_all.append(model.coef_[:, None].T)
 
     # stack arrays
 
@@ -744,7 +752,8 @@ def main():
     test_auc_all=np.vstack(test_auc_all)
 
     # model metrics
-    coeff_all = np.vstack(model.coef_)
+    if args.classifier != "RF" and args.classifier != "NN":
+        coeff_all = np.vstack(model.coef_)
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
