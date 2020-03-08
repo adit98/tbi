@@ -154,12 +154,98 @@ def get_lab_data(lab_filename):
 
     return lab_data
 
+def get_respiratory(resp_filename):
+    # Loading respiratory data
+    respiratory = pd.read_csv('data/respiratory_data_long_query.csv')
+    # drop rows that are irrelevant (< -1) or outside of first 24 hours
+    resp_data = respiratory.loc[respiratory['respchartentryoffset'] > -1]
+    resp_data = respiratory.loc[respiratory['respchartentryoffset'] <= 24*60]
+
+    return resp_data
+
 def get_demographics(dem_filename):
     # Loading demographic data
     demographic_all = pd.read_csv('data/patient_demographics_data.csv')
     return demographic_all
 
-def process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
+def process_ts(lab_patients, hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
+        verbal=None, eyes=None, temp=None, summarization_int=1):
+    # put all the ts data into the same dataframe
+    ts_data = pd.DataFrame(columns=['patientunitstayid', 'offset', 'key', 'value'])
+    hr['key'] = 'hr'
+    resp['key'] = 'resp'
+    sao2['key'] = 'sao2'
+    gcs['key'] = 'gcs'
+
+    # add optional time series
+    if systolic is not None:
+        systolic['key'] = 'noninvasivesystolic'
+
+    if diastolic is not None:
+        diastolic['key'] = 'noninvasivediastolic'
+
+    if meanbp is not None:
+        meanbp['key'] = 'noninvasivemean'
+
+    if verbal is not None:
+        verbal['key'] = 'verbal'
+
+    if eyes is not None:
+        eyes['key'] = 'eyes'
+
+    if temp is not None:
+        temp['key'] = 'temp'
+
+    ts_data = ts_data.merge(hr, how='outer').merge(resp, how = 'outer').merge(sao2,
+            how = 'outer').merge(gcs, how = 'outer')
+
+    # merge any of the optional time series
+    if systolic is not None:
+        ts_data = ts_data.merge(systolic, how = 'outer')
+        
+    if diastolic is not None:
+        ts_data = ts_data.merge(diastolic, how = 'outer')
+
+    if meanbp is not None:
+        ts_data = ts_data.merge(meanbp, how = 'outer')
+
+    if verbal is not None:
+        ts_data = ts_data.merge(verbal, how = 'outer')
+
+    if eyes is not None:
+        ts_data = ts_data.merge(eyes, how = 'outer')
+
+    if temp is not None:
+        ts_data = ts_data.merge(temp, how = 'outer')
+
+    # Finally merging on patients to discard any patients that are not in
+    # filtered lab (must have all labs that were done for at least 90% of patients
+    ts_data = ts_data.merge(lab_patients, how='inner')
+
+    # calculate bins, drop offset, calculate bin avg
+    ts_data['offset_bin'] = ts_data['offset'] // summarization_int
+    ts_data = ts_data.drop(columns=['offset'])
+    ts_data = ts_data.groupby(['patientunitstayid', 'offset_bin', 'key']).mean().reset_index()
+
+    # function to reindex dataframe (ensure we have all bins)
+    def rein(df):
+        num_bins = 24 // summarization_int
+        df = df.set_index('offset_bin')
+        df = df.drop(['patientunitstayid', 'key'], axis = 1)
+        return df.reindex(index=np.arange(num_bins).astype(int))
+
+    # set bin as index and reindex
+    ts_data = ts_data.loc[:, ~ts_data.columns.str.lower().str.contains('^unnamed')]
+    ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(rein).reset_index()
+
+    # fill missing bins, drop patients with no measurements for any of the features
+    ts_data = ts_data.groupby(['patientunitstayid', 'key']).apply(lambda x: x.fillna(method='bfill').fillna(method='ffill')).reset_index()
+    ts_data = ts_data.pivot_table(index=['patientunitstayid', 'offset_bin'],
+            columns='key', values='value').dropna().reset_index()
+
+    return ts_data
+
+def old_process_ts(hr, resp, sao2, gcs, systolic=None, diastolic=None, meanbp=None,
         verbal=None, eyes=None, temp=None, summarization_int=1):
     # put all the ts data into the same dataframe
     ts_data = pd.DataFrame(columns=['patientunitstayid', 'offset', 'key', 'value'])
@@ -244,6 +330,57 @@ def process_lab(lab_data):
     # get avg lab value for each patient
     lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
 
+    # Creating table of indicator variables for each lab
+    lab_indicator = pd.DataFrame()
+    lab_indicator['patientunitstayid'] = lab_cts['patientunitstayid']
+    for col in lab_cts.columns:
+        if col != 'patientunitstayid':
+            data = list(lab_cts[col])
+            data = [1 if d > 0 else 0 for d in data]
+            lab_indicator[col] = data
+
+    # Finding labs with at least 90% of patients
+    geq90 = lab_indicator[lab_indicator.columns[lab_indicator.mean() >= 0.9]]
+    # Getting rows in which patient has an entry for every lab
+    all_labs_geq90 = geq90[(geq90.T != 0).all()]
+    patients_all_geq90 = all_labs_geq90['patientunitstayid']
+    # Labs with at least 20% of patients
+    geq20 = lab_indicator[lab_indicator.columns[lab_indicator.mean() >= 0.2]]
+    labs_tokeep = geq20.columns # includes patientunitstayid
+
+    # Keeping only patients that have entries for all of the most common labs
+    # and labs with at least 20% of patients
+    lab_cts = lab_cts[labs_tokeep]
+    lab_avgs = lab_avgs[labs_tokeep]
+
+    lab_cts = pd.merge(lab_cts, patients_all_geq90, how='inner')
+    lab_avgs = pd.merge(lab_avgs, patients_all_geq90, how='inner')
+
+    # fill patients missing labs with 0s
+    lab_cts = lab_cts.groupby('patientunitstayid').apply(lambda x: x.fillna(0))
+
+    #TODO check this assumption
+    # fill patients' missing lab values with avg value of that lab
+    #lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()),
+    #        axis=1).drop(columns=['patientunitstayid'])
+    lab_avgs = lab_avgs.apply(lambda x: x.fillna(x.median()), axis=1)
+    #lab_data = pd.concat([lab_cts, lab_avgs], axis=1)
+    lab_data = lab_avgs
+
+    return patients_all_geq90, lab_data
+
+def old_process_lab(lab_data):
+    # pivot so that each column is a lab
+    lab_data_piv = pd.pivot_table(lab_data, index=['patientunitstayid',
+        'labresultoffset'], columns='labname', values = 'labresult').reset_index()
+    lab_data_piv = lab_data_piv.drop(columns=['labresultoffset'])
+
+    # get counts of each lab for each patient
+    lab_cts = lab_data_piv.groupby('patientunitstayid').count().reset_index()
+
+    # get avg lab value for each patient
+    lab_avgs = lab_data_piv.groupby('patientunitstayid').mean().reset_index()
+
     # drop labs that <60% of patients get
     lab_cts = lab_cts[lab_cts.columns[lab_cts.mean() > 0.6]]
     lab_avgs = lab_avgs[lab_cts.columns[lab_cts.mean() > 0.6]]
@@ -260,6 +397,49 @@ def process_lab(lab_data):
     lab_data = lab_avgs
 
     return lab_data
+
+def process_resp(respiratory):
+    # Loading respiratory data
+    respflowsettings = respiratory[respiratory['respcharttypecat'] == 'respFlowSettings']
+    rfs_types = list(respflowsettings['respchartvaluelabel'].drop_duplicates())
+
+    respflowcare = respiratory[respiratory['respcharttypecat'] == 'respFlowCareData']
+    rfc_types = list(respflowcare['respchartvaluelabel'].drop_duplicates())
+
+    respflowptvent = respiratory[respiratory['respcharttypecat'] == 'respFlowPtVentData']
+    rfpv_types = list(respflowptvent['respchartvaluelabel'].drop_duplicates())
+
+    # Selecting respflowsettings and respflowptvent for features
+    selected_feat = rfs_types
+    selected_feat.extend(rfpv_types)
+    selected_resp_data = pd.concat([respflowsettings, respflowptvent])
+
+    # Creating dataframe using pivot on data value label
+    resp_data = pd.pivot_table(selected_resp_data,
+        index=['patientunitstayid', 'respchartentryoffset'],
+        columns='respchartvaluelabel', values='respchartvalue', aggfunc='first').reset_index()
+    resp_data = resp_data.drop(columns=['respchartentryoffset'])
+
+    # Dropping columns corresponding to non-numeric data or data already used (ts data)
+    columns_to_drop = ['EtCO2', 'RR (patient)', 'Total RR', 'HR', 'SaO2', '5. ARDS Eval (M or DNM)']
+    resp_data = resp_data.drop(columns=columns_to_drop)
+    # Dealing with formatting issues with percentage in some values in column
+    resp_data['FiO2'] = [float(str(i).strip('%'))/100 for i in list(resp_data['FiO2'])]
+    for col in resp_data.columns:
+        if col != 'patientunitstayid' and col != 'respchartentryoffset':
+            resp_data[col] = resp_data[col].astype(float)
+
+    resp_data = resp_data.groupby('patientunitstayid').count().reset_index()
+
+    # Creating table of indicator variables
+    resp_data_indicator = resp_data.fillna(0)
+    for col in resp_data_indicator.columns:
+        if col != 'patientunitstayid' and col != 'respchartentryoffset':
+            data = list(resp_data_indicator[col])
+            data = [1 if d != 0 else 0 for d in data]
+            resp_data_indicator[col] = data
+
+    return resp_data_indicator
 
 def process_infusion(inf_data):
     # helper function to get longest word in infusion drug name (avoid duplicates)
@@ -514,6 +694,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
                 'alpaca_resp.csv', 'alpaca_sao2.csv')
         gcs, final_gcs = get_motor_gcs(os.path.join(data_dir, 'patient_motor.csv'))
         lab_data = get_lab_data(os.path.join(data_dir, 'lab_data.csv'))
+        resp_data = get_respiratory(os.path.join(data_dir, 'respiratory_data_long_query.csv'))
         dem_data = get_demographics(os.path.join(data_dir,
             'patient_demographics_data.csv'))
         systolic, diastolic, meanbp = get_aperiodic(data_dir,
@@ -528,6 +709,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         gcs.to_csv(os.path.join(loaded_loc, 'gcs.csv'))
         final_gcs.to_csv(os.path.join(loaded_loc, 'final_gcs.csv'))
         lab_data.to_csv(os.path.join(loaded_loc, 'lab_data.csv'))
+        resp_data.to_csv(os.path.join(loaded_loc, 'respiratory_data.csv'))
         systolic.to_csv(os.path.join(loaded_loc, 'systolic.csv'))
         diastolic.to_csv(os.path.join(loaded_loc, 'diastolic.csv'))
         meanbp.to_csv(os.path.join(loaded_loc, 'meanbp.csv'))
@@ -543,19 +725,22 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
                 low_memory=False)
         dem_data = get_demographics(os.path.join(data_dir, 'patient_demographics_data.csv'))
 
+        # Processing lab data first to get the patient list
+        patients, lab_data = process_lab(lab_data)
+
         # create dataframe to hold all time series data
         if use_ts_nursecharting:
             if use_ts_aperiodic:
-                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes,
+                ts_data = process_ts(patients, hr, resp, sao2, gcs, verbal=verbal, eyes=eyes,
                         temp=temp, systolic=systolic, diastolic=diastolic, meanbp=meanbp)
 
             else:
-                ts_data = process_ts(hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
+                ts_data = process_ts(patients, hr, resp, sao2, gcs, verbal=verbal, eyes=eyes, temp=temp)
                 # process aperiodic data
                 aperiodic_data = process_aperiodic(systolic, diastolic, meanbp)
 
         else:
-            ts_data = process_ts(hr, resp, sao2, gcs)
+            ts_data = process_ts(patients, hr, resp, sao2, gcs)
 
             # process nc data
             nc_data = process_nc(verbal, eyes, temp)
@@ -567,7 +752,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         # TODO figure out if this step can be placed where we do the second fillna
         medication_data = process_medication(medication_data)
         infusion_data = process_infusion(infusion_data)
-        lab_data = process_lab(lab_data)
+        resp_data = process_resp(resp_data)
 
         # TODO add discharge_data and mort_data as options in get_label
         dem_data, discharge_data, mort_data = process_dem(dem_data)
@@ -582,6 +767,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         medication_data = medication_data.set_index('patientunitstayid').reindex(patient_list)
         infusion_data = infusion_data.set_index('patientunitstayid').reindex(patient_list)
         dem_data = dem_data.set_index('patientunitstayid').reindex(patient_list)
+        resp_data = resp_data.set_index('patientunitstayid').reindex(patient_list)
 
         if not use_ts_nursecharting:
             nc_data = nc_data.set_index('patientunitstayid').reindex(patient_list)
@@ -601,6 +787,9 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
         # fill the rest of the patients lab data
         lab_data = lab_data.apply(lambda x: x.fillna(x.median()), axis=1)
 
+        # fill the rest of the patients respiratory data indicator variables with 0s
+        resp_data = resp_data.fillna(0)
+
         if not use_ts_aperiodic:
             aperiodic_data = aperiodic_data.apply(lambda x: x.fillna(x.median()), axis=1)
 
@@ -609,6 +798,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
 
         ts_data.to_csv(os.path.join(processed_loc, 'ts_processed.csv'))
         lab_data.to_csv(os.path.join(processed_loc, 'lab_processed.csv'))
+        resp_data.to_csv(os.path.join(processed_loc, 'respiratory_processed.csv'))
         medication_data.to_csv(os.path.join(processed_loc, 'medication_processed.csv'))
         infusion_data.to_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
         dem_data.to_csv(os.path.join(processed_loc, 'dem_processed.csv'))
@@ -624,6 +814,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     else:
         ts_data = pd.read_csv(os.path.join(processed_loc, 'ts_processed.csv'))
         lab_data = pd.read_csv(os.path.join(processed_loc, 'lab_processed.csv'))
+        resp_data = pd.read_csv(os.path.join(processed_loc, 'respiratory_processed.csv'))
         medication_data = pd.read_csv(os.path.join(processed_loc, 'medication_processed.csv'))
         infusion_data = pd.read_csv(os.path.join(processed_loc, 'infusion_processed.csv'))
         dem_data = pd.read_csv(os.path.join(processed_loc, 'dem_processed.csv'))
@@ -645,6 +836,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     # drop unnamed columns
     ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^Unnamed')]
     lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^Unnamed')]
+    resp_data = resp_data.loc[:, ~resp_data.columns.str.contains('^Unnamed')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^Unnamed')]
     medication_data = medication_data.loc[:,
             ~medication_data.columns.astype(str).str.contains('^Unnamed')]
@@ -654,6 +846,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     # drop offset columns
     #ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^offset')]
     lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^offset')]
+    resp_data = resp_data.loc[:, ~resp_data.columns.str.contains('^offset')]
     medication_data = medication_data.loc[:,
             ~medication_data.columns.astype(str).str.contains('^offset')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^offset')]
@@ -663,6 +856,7 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     # drop index columns
     ts_data = ts_data.loc[:, ~ts_data.columns.str.contains('^index')]
     lab_data = lab_data.loc[:, ~lab_data.columns.str.contains('^index')]
+    resp_data = resp_data.loc[:, ~resp_data.columns.str.contains('^index')]
     medication_data = medication_data.loc[:,
             ~medication_data.columns.astype(str).str.contains('^index')]
     infusion_data = infusion_data.loc[:, ~infusion_data.columns.str.contains('^index')]
@@ -685,5 +879,5 @@ def get_processed_data(loaded_loc, processed_loc, rld, reprocess, data_dir, summ
     else:
         nc_data = None
 
-    return ts_data, lab_data, medication_data, infusion_data, dem_data, aperiodic_data, nc_data, \
+    return ts_data, lab_data, resp_data, medication_data, infusion_data, dem_data, aperiodic_data, nc_data, \
         discharge_data, mort_data, final_gcs, patient_list
