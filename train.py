@@ -549,6 +549,10 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
         X_meanbp = X_ts[['patientunitstayid', 'offset_bin', 'noninvasivemean']].pivot(index='patientunitstayid',
                 columns='offset_bin', values='noninvasivemean').values
 
+    # get feature names for nursecharting and aperiodic
+    nc_feat = X_nc.columns[1:]
+    aperiodic_feat = X_aperiodic.columns[1:]
+
     # put them back into ts numpy array
     if num_features <= 4:
         X_ts = np.hstack([X_hr, X_resp, X_sao2, X_gcs])
@@ -569,7 +573,6 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     inf_feat = X_inf.columns[1:]
     dem_feat = X_dem.columns[1:]
     resp_feat = X_resp_tb.columns[1:]
-
 
     # get other stuff, move to numpy
     X_lab = X_lab.iloc[:, 1:].values
@@ -592,7 +595,7 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
         num_components.append(X_aperiodic.shape[1])
         X_stacked = np.hstack([X_ts, X_lab, X_med, X_inf, X_dem, X_aperiodic])
 
-    return X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat
+    return X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat, nc_feat, aperiodic_feat
 
 def main():
     # argument parser
@@ -652,7 +655,7 @@ def main():
     processed_dir = os.path.join(args.data_dir, 'loaded', 'processed')
     results_dir = 'model_metrics'
 
-    X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat = stack_data(args.reload,
+    X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat, nc_feat, aperiodic_feat = stack_data(args.reload,
         args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
@@ -680,7 +683,7 @@ def main():
     num_components2 = np.cumsum(num_components)
     print(num_components2)
     print(X_stacked.shape)
-    for run in tqdm(range(args.num_runs)):
+    for run in tqdm(range(int(args.num_runs))):
         # split data
         X_train, X_test, y_train, y_test = train_test_split(X_stacked, y, test_size=0.2)
 
@@ -689,13 +692,14 @@ def main():
         X_lab_train = X_train[:, num_components2[0]:num_components2[1]]
         X_med_train = X_train[:, num_components2[1]:num_components2[2]]
         X_inf_train = X_train[:, num_components2[2]:num_components2[3]]
+        X_dem_train = X_train[:, num_components2[3]:num_components2[4]]
 
         if len(num_components) > 5:
-            X_nc_train = X_train[:, num_components2[3]:num_components2[4]]
-            X_aperiodic_train = X_train[:, num_components2[4]:num_components2[5]]
+            X_nc_train = X_train[:, num_components2[4]:num_components2[5]]
+            X_aperiodic_train = X_train[:, num_components2[5]:num_components2[6]]
 
         elif len(num_components) > 4:
-            X_aperiodic_train = X_train[:, num_components2[3]:num_components2[4]]
+            X_aperiodic_train = X_train[:, num_components2[4]:num_components2[5]]
 
 
         # get different components (test)
@@ -703,13 +707,14 @@ def main():
         X_lab_test = X_test[:, num_components2[0]:num_components2[1]]
         X_med_test = X_test[:, num_components2[1]:num_components2[2]]
         X_inf_test = X_test[:, num_components2[2]:num_components2[3]]
+        X_dem_test = X_test[:, num_components2[4]:num_components2[4]]
 
         if len(num_components) > 5:
-            X_nc_test = X_test[:, num_components2[3]:num_components2[4]]
-            X_aperiodic_test = X_test[:, num_components2[4]:num_components2[5]]
+            X_nc_test = X_test[:, num_components2[4]:num_components2[5]]
+            X_aperiodic_test = X_test[:, num_components2[5]:num_components2[6]]
 
         elif len(num_components) > 4:
-            X_aperiodic_test = X_test[:, :num_components2[4]]
+            X_aperiodic_test = X_test[num_components2[4]:, :num_components2[5]]
 
         # extract features
         X_ts_train, X_ts_test, ts_feat = extract_ts(X_ts_train, X_ts_test, y_train, y_test, method=args.method)
@@ -726,6 +731,9 @@ def main():
                 X_inf_train, X_nc_train, X_aperiodic_train])
             X_stacked_test = np.hstack([X_ts_test, X_lab_test, X_med_test,
                 X_inf_test, X_nc_test, X_aperiodic_test])
+
+            # Putting corresponding feature names together
+            X_feat = np.hstack([ts_feat, lab_feat, med_feat, inf_feat, nc_feat, aperiodic_feat])
 
         elif len(num_components) > 4:
             X_aperiodic_train, X_aperiodic_test = extract_aperiodic(X_aperiodic_train, X_aperiodic_test)
@@ -792,6 +800,9 @@ def main():
     coefficients = coeff_all[:,:,0,0]
     coefficients = np.transpose(coefficients)
 
+    # Creating dataframe to hold feature names and coefficients
+    coef_df = pd.DataFrame(coefficients, index=list(X_feat))
+
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
     print("Train AUC:", np.mean(train_auc_all))
@@ -803,6 +814,7 @@ def main():
 
         # save coefficients
         np.save(os.path.join(results_dir, exp_num, 'coefficients.npy'), coefficients)
+        coef_df.to_csv(results_dir, exp_num, 'coefficients.csv')
 
         # save files (train)
         np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)

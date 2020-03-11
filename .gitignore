@@ -1,4 +1,5 @@
 .ipynb_checkpoints
-**/*.csv
+data/*.csv
+processed/processed/*.csv
 __pycache__/
 data/*
