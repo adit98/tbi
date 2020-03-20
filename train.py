@@ -662,6 +662,8 @@ def main():
     y = get_labels(y_gcs, False, mort_df, False)
     print(mort_df.values)
 
+
+
     # create lists to hold metrics across runs
 
     # train metrics
@@ -755,6 +757,21 @@ def main():
         X_stacked_train = np.where(np.isnan(X_stacked_train), np.ma.array(X_stacked_train, mask=np.isnan(X_stacked_train)).mean(axis=1)[:, np.newaxis], X_stacked_train)
         X_stacked_test = np.where(np.isnan(X_stacked_test), np.ma.array(X_stacked_test, mask=np.isnan(X_stacked_test)).mean(axis=1)[:, np.newaxis], X_stacked_test)
         # train model
+
+        dataLevel = 4
+        if dataLevel == 1:
+            X_stacked_train = X_stacked_train[:, 15:20]
+            X_stacked_test = X_stacked_test[:, 15:20]
+        elif dataLevel == 2:
+            X_stacked_train = X_stacked_train[:, :20]
+            X_stacked_test = X_stacked_test[:, :20]
+        elif dataLevel == 3:
+            X_stacked_train = X_stacked_train[:, :63]
+            X_stacked_test = X_stacked_test[:, :63]
+        elif dataLevel == 4:
+            X_stacked_train = X_stacked_train[:, :]
+            X_stacked_test = X_stacked_test[:, :]
+
         model = train(X_stacked_train, y_train, model_type=args.classifier)
 
         # get scores
@@ -799,7 +816,14 @@ def main():
     coefficients = np.zeros((coeff_all.shape[0], coeff_all.shape[1]))
     coefficients = coeff_all[:,:,0,0]
     coefficients = np.transpose(coefficients)
-
+    if dataLevel == 1:
+        X_feat = X_feat[15:20]
+    elif dataLevel == 2:
+        X_feat = X_feat[:20]
+    elif dataLevel ==3:
+        X_feat = X_feat[:63]
+    elif dataLevel == 4:
+        X_feat = X_feat[:]
     # Creating dataframe to hold feature names and coefficients
     coef_df = pd.DataFrame(coefficients, index=list(X_feat))
 
