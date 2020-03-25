@@ -579,7 +579,7 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
 
     # appending label corresponding to the table
     lab_feat = ['lab_'+i for i in lab_feat]
-    med_feat = ['med_'+i for i in med_feat]
+    med_feat = ['med_'+str(i) for i in med_feat]
     inf_feat = ['inf_'+i for i in inf_feat]
     dem_feat = ['dem_'+i for i in dem_feat]
     resp_feat = ['resp_'+i for i in resp_feat]
