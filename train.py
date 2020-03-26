@@ -153,6 +153,7 @@ def extract_ts(X_ts_train, X_ts_test, y_train, y_test, method='PCA', num_samples
         X_resp_test = resp_pca.transform(X_resp_test)
         X_sao2_test = sao2_pca.transform(X_sao2_test)
         X_gcs_test = gcs_pca.transform(X_gcs_test)
+        #print(hr_pca.components_)
 
         if num_groups > 4:
             X_eyes_test = eyes_pca.fit_transform(X_eyes_test)
@@ -471,32 +472,39 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.6,
-                solver='saga', C=.2)
-        params = {'C': np.linspace(0.01, 1, num=5).tolist(),
-                'l1_ratio': np.linspace(0.01, 1, num=5).tolist()}
-        #gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
-        #gs_log_reg.fit(X, y)
+        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.97,
+                solver='saga', C=.03)
+        params = {'C': [.01, .03, .05, .1],
+                'l1_ratio': [.9, .95, .97]}
+        
         X = np.where(np.isnan(X), np.ma.array(X, mask=np.isnan(X)).mean(axis=1)[:, np.newaxis], X)
-        clf.fit(X, y)
-        return clf
-        #return gs_log_reg.best_estimator_
+        #clf.fit(X, y)
+        gs_log_reg = GridSearchCV(clf, params, cv=3, scoring='accuracy', n_jobs=-1)
+        gs_log_reg.fit(X, y)
+        #return clf
+        return gs_log_reg.best_estimator_
 
     elif model_type == 'RF':
-        clf = RandomForestClassifier(max_depth=10, n_jobs=-1)
-        #params = {'max_depth': np.arange(2, 16).tolist()}
-        #gs_rf = GridSearchCV(clf, params, cv=5, scoring='accuracy', n_jobs=-1)
-        #gs_rf.fit(X, y)
-        #return gs_rf.best_estimator_
-        clf.fit(X,y)
-        return clf
+        clf = RandomForestClassifier(n_estimators = 200, max_depth=6,ccp_alpha = .003, n_jobs=-1)
+        params = {'max_depth': [5, 6, 7], 'ccp_alpha': [.001, .003, .005, .007]}
+        gs_rf = GridSearchCV(clf, params, cv=5, scoring='accuracy', n_jobs=-1)
+        gs_rf.fit(X, y)
+        return gs_rf.best_estimator_
+        #clf.fit(X,y)
+        #return clf
     
     elif model_type == 'NN':
-        clf = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2))
-        #params = {'solver': [‘lbfgs’, ‘sgd’, ‘adam’], }
-        #gs_nn = GridSearchCV(clf, params)#, cv = 5, scoring = 'accuracy', n_jobs = -1)
-        clf.fit(X,y)
-        return clf
+        gcs = False
+        if gcs:
+            clf = MLPClassifier(max_iter = 10000, solver='lbfgs', alpha=150, hidden_layer_sizes=(5,3))
+            params = {'solver': ['lbfgs', 'sgd', 'adam'] }
+            gs_nn = GridSearchCV(clf, params, cv = 5, scoring = 'accuracy', n_jobs = -1)
+            gs_nn.fit(X, y)
+            return gs_nn.best_estimator_
+        else:
+            clf = MLPClassifier(max_iter = 10000, solver='lbfgs', alpha=40, hidden_layer_sizes=(5,3))
+            clf.fit(X,y)
+            return clf
     
     raise NotImplementedError
 
@@ -759,7 +767,10 @@ def main():
         # train model
 
         dataLevel = 4
-        if dataLevel == 1:
+        if dataLevel == 0:
+            X_stacked_train = X_stacked_train[:, :15]
+            X_stacked_test = X_stacked_test[:, :15]
+        elif dataLevel == 1:
             X_stacked_train = X_stacked_train[:, 15:20]
             X_stacked_test = X_stacked_test[:, 15:20]
         elif dataLevel == 2:
@@ -812,11 +823,14 @@ def main():
 #        coeff_all = np.vstack(model.coef_)
 
     # CHECK THIS
-    coeff_all = np.asarray(coeff_all)
-    coefficients = np.zeros((coeff_all.shape[0], coeff_all.shape[1]))
-    coefficients = coeff_all[:,:,0,0]
-    coefficients = np.transpose(coefficients)
-    if dataLevel == 1:
+    if args.classifier != 'RF' and args.classifier != 'NN':
+        coeff_all = np.asarray(coeff_all)
+        coefficients = np.zeros((coeff_all.shape[0], coeff_all.shape[1]))
+        coefficients = coeff_all[:,:,0,0]
+        coefficients = np.transpose(coefficients)
+    if dataLevel == 0:
+        X_feat = X_feat[:15]
+    elif dataLevel == 1:
         X_feat = X_feat[15:20]
     elif dataLevel == 2:
         X_feat = X_feat[:20]
@@ -825,7 +839,8 @@ def main():
     elif dataLevel == 4:
         X_feat = X_feat[:]
     # Creating dataframe to hold feature names and coefficients
-    coef_df = pd.DataFrame(coefficients, index=list(X_feat))
+    if args.classifier != 'RF' and args.classifier != 'NN':
+        coef_df = pd.DataFrame(coefficients, index=list(X_feat))
 
     print("Train Score:", np.mean(train_scores))
     print("Test Score:", np.mean(test_scores))
@@ -837,8 +852,9 @@ def main():
         os.makedirs(os.path.join('model_metrics', exp_num))
 
         # save coefficients
-        np.save(os.path.join(results_dir, exp_num, 'coefficients.npy'), coefficients)
-        coef_df.to_csv(os.path.join(results_dir, exp_num, 'coefficients.csv'))
+        if args.classifier != 'RF' and args.classifier != 'NN':
+            np.save(os.path.join(results_dir, exp_num, 'coefficients.npy'), coefficients)
+            coef_df.to_csv(os.path.join(results_dir, exp_num, 'coefficients.csv'))
 
         # save files (train)
         np.save(os.path.join(results_dir, exp_num, 'train_scores.npy'), train_scores)
