@@ -560,6 +560,9 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     # get feature names for nursecharting and aperiodic
     nc_feat = X_nc.columns[1:]
     aperiodic_feat = X_aperiodic.columns[1:]
+    # including table name as prefix
+    nc_feat = ['nc_'+i for i in nc_feat]
+    aperiodic_feat = ['aperiodic_'+i for i in aperiodic_feat]
 
     # put them back into ts numpy array
     if num_features <= 4:
@@ -581,6 +584,13 @@ def stack_data(rld, reprocess, loaded_loc, processed_loc, data_dir, summarizatio
     inf_feat = X_inf.columns[1:]
     dem_feat = X_dem.columns[1:]
     resp_feat = X_resp_tb.columns[1:]
+
+    # appending label corresponding to the table
+    lab_feat = ['lab_'+i for i in lab_feat]
+    med_feat = ['med_'+str(i) for i in med_feat]
+    inf_feat = ['inf_'+i for i in inf_feat]
+    dem_feat = ['dem_'+i for i in dem_feat]
+    resp_feat = ['resp_'+i for i in resp_feat]
 
     # get other stuff, move to numpy
     X_lab = X_lab.iloc[:, 1:].values

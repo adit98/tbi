@@ -517,13 +517,13 @@ def process_infusion(inf_data):
 
 def process_medication(med_data):
     # select relevant columns
-    med_data = med_data[['patientunitstayid', 'dosage', 'gtc']].dropna().drop_duplicates()
+    med_data = med_data[['patientunitstayid', 'dosage', 'drughiclseqno']].dropna().drop_duplicates()
 
     # set values to 0/1
     med_data['dosage'] = 1
 
     # pivot lab names
-    med_data = pd.pivot_table(med_data, index=['patientunitstayid'], columns='gtc')
+    med_data = pd.pivot_table(med_data, index=['patientunitstayid'], columns='drughiclseqno')
     med_data = med_data.fillna(0).reset_index()
 
     # get rid of multiindex
