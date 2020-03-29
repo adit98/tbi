@@ -629,6 +629,8 @@ def main():
             action='store_true')
     parser.add_argument('-m', dest='method', help="select ts feature extraction method",
             required=False, default='PCA')
+    parser.add_argument('-t', dest='type', help="select classification type 'mort' or 'gcs'",
+            required=False, default='gcs')
     parser.add_argument('-c', dest='classifier', help="select classifier",
             required=False, default='Logistic')
     args = parser.parse_args()
@@ -677,7 +679,8 @@ def main():
         args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
-    y = get_labels(y_gcs, False, mort_df, False)
+    mort = args.type == 'mort'
+    y = get_labels(y_gcs, mort, mort_df, False)
     print(mort_df.values)
 
 
