@@ -472,8 +472,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.97,
-                solver='saga', C=.03)
+        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.05,
+                solver='saga', C=0.5)
         params = {'C': [.01, .03, .05, .1],
                 'l1_ratio': [.9, .95, .97]}
         
