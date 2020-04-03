@@ -401,18 +401,18 @@ def extract_dem(X_dem_train, X_dem_test, method=None):
     raise NotImplementedError
 
 # TODO fix this to work with different labels
-def get_labels(y_gcs = None, mort=False, mort_df = None, dis_loc = False):
+def get_labels(y_gcs = None, toPred = "gcs", mort_df = None):
     if mort_df is None:
             raise ValueError("Must supply mort_df")
     if y_gcs is None:
         raise ValueError("Must supply y_gcs")
 
-    if mort:
+    if toPred == "mort":
         y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
         y = y_gcs['Value'].values
-        mortal = y_gcs['unitdischargestatus'].values
+        mortal = y_gcs['actualicumortality'].values
         y = np.logical_not(mortal == 'Expired').astype(int)
-    elif dis_loc:
+    elif toPred == "disloc":
         y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
         y = y_gcs['Value'].values
         disloc = y_gcs['unitdischargelocation'].values.astype(str)
@@ -424,10 +424,14 @@ def get_labels(y_gcs = None, mort=False, mort_df = None, dis_loc = False):
         dislocNotBad = np.logical_not(np.isin(disloc, bad)).astype(int)
         dislocGood = np.isin(disloc, good).astype(int)
         y = dislocNotBad
+    elif toPred == "los":
+        y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
+        y = y_gcs['actualiculos'].values > 5
+
     else:   
         y_gcs = y_gcs.reset_index().merge(mort_df, on = 'patientunitstayid', how = 'left')
         y = y_gcs['Value'].values
-        mortal = y_gcs['unitdischargestatus'].values
+        mortal = y_gcs['actualicumortality'].values
         # modify labels (positive (1) is bad outcome (GCS < 6))
         y[np.logical_or(y < 6, mortal == 'Expired')] = 1
         y[y == 6] = 0
@@ -676,8 +680,8 @@ def main():
     X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat, nc_feat, aperiodic_feat = stack_data(args.reload,
         args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
-    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
-    y = get_labels(y_gcs, False, mort_df, False)
+    mort_df = pd.read_csv(os.path.join(args.data_dir, 'apache_patient_result_data.csv')).drop_duplicates(['patientunitstayid'])
+    y = get_labels(y_gcs, 'los', mort_df)
     print(mort_df.values)
 
 
