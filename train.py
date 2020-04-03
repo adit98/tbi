@@ -682,19 +682,8 @@ def main():
     X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat, nc_feat, aperiodic_feat = stack_data(args.reload,
         args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
-<<<<<<< HEAD
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'apache_patient_result_data.csv')).drop_duplicates(['patientunitstayid'])
-    y = get_labels(y_gcs, 'los', mort_df)
-||||||| merged common ancestors
-    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
-    y = get_labels(y_gcs, False, mort_df, False)
-=======
-    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
-    mort = args.type == 'mort'
-    y = get_labels(y_gcs, mort, mort_df, False)
->>>>>>> 7c886d9f5c46ff3aa447a60198685fa4fc980745
-    print(mort_df.values)
-
+    y = get_labels(y_gcs, args.type, mort_df)
 
 
     # create lists to hold metrics across runs
