@@ -476,8 +476,8 @@ def resample_data(X_train, y_train, mort=False, method='over'):
 # TODO implement cross-validation
 def train(X, y, model_type='Logistic'):
     if model_type == 'Logistic':
-        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.97,
-                solver='saga', C=.03)
+        clf = LogisticRegression(max_iter=1000, penalty='elasticnet', l1_ratio=0.05,
+                solver='saga', C=0.5)
         params = {'C': [.01, .03, .05, .1],
                 'l1_ratio': [.9, .95, .97]}
         
@@ -633,6 +633,8 @@ def main():
             action='store_true')
     parser.add_argument('-m', dest='method', help="select ts feature extraction method",
             required=False, default='PCA')
+    parser.add_argument('-t', dest='type', help="select classification type 'mort' or 'gcs'",
+            required=False, default='gcs')
     parser.add_argument('-c', dest='classifier', help="select classifier",
             required=False, default='Logistic')
     args = parser.parse_args()
@@ -680,8 +682,17 @@ def main():
     X_stacked, y_gcs, num_components, lab_feat, med_feat, inf_feat, dem_feat, resp_feat, nc_feat, aperiodic_feat = stack_data(args.reload,
         args.reprocess, loaded_dir, processed_dir, args.data_dir, args.summarization_int)
 
+<<<<<<< HEAD
     mort_df = pd.read_csv(os.path.join(args.data_dir, 'apache_patient_result_data.csv')).drop_duplicates(['patientunitstayid'])
     y = get_labels(y_gcs, 'los', mort_df)
+||||||| merged common ancestors
+    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
+    y = get_labels(y_gcs, False, mort_df, False)
+=======
+    mort_df = pd.read_csv(os.path.join(args.data_dir, 'patient_demographics_data.csv')).drop_duplicates(['patientunitstayid'])
+    mort = args.type == 'mort'
+    y = get_labels(y_gcs, mort, mort_df, False)
+>>>>>>> 7c886d9f5c46ff3aa447a60198685fa4fc980745
     print(mort_df.values)
 
 
