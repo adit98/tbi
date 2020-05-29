@@ -74,6 +74,53 @@ train <- train_norm
 val <- val_norm
 test <- test_norm
 
+# ------- Resampling the Train dataset ---------- #
+# To keep the same number of people in each bin
+histogram(train$los)
+intervals <- seq(from=3, to=30, by=3)
+temp0 <- train[(train['los'] >= 0) & (train['los'] <= 3),]
+cts <- c(nrow(temp0))
+for (i in intervals[2:length(intervals)]) {
+  temp <- train[(train['los'] > i-3) & (train['los'] <= i),]
+  print(nrow(temp))
+  cts <- c(cts, nrow(temp))
+}
+
+# ------ Trying exponential decay for resampling ---- #
+fun1 <- function(a,r,t) { 
+  return(a*exp(-r*t))
+}
+
+t <- seq(from=0, to=30-3, by=3)
+binsize <- fun1(30,0.05,t)
+
+# ----------------------------------------------------#
+
+# Getting number of elements per bin
+# binsize <- rep(ceiling(mean(cts)), length(intervals))
+temp0 <- train[(train['los'] >= 0) & (train['los'] <= 3),]
+rand_idcs <- round(runif(binsize[1])*nrow(temp0))
+train_resamp <- temp0[rand_idcs,]
+
+j = 2
+for (i in intervals[2:length(intervals)]) {
+  temp <- train[(train['los'] > i-3) & (train['los'] <= i),]
+  rand_idcs <- round(runif(binsize[j])*nrow(temp))
+  train_resamp <- rbind(train_resamp, temp[rand_idcs,])
+  j = j+1
+}
+
+train <- train_resamp
+
+los_train <- train$los
+occurs_train <- train$occurs
+los_val <- val$los
+occurs_val <- val$occurs
+los_test <- test$los
+occurs_test <- test$occurs
+
+# -------- End of resampling --------- #
+
 dist="loglogistic"
 
 # Using variable selection
