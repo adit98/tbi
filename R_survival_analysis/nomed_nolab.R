@@ -28,6 +28,10 @@ los$Value <- NULL
 los$patientunitstayid <- NULL
 los$X <- NULL
 
+# Removing columns that start with MED or LAB
+los <- los[,!startsWith(colnames(los), 'MED')]
+los <- los[,!startsWith(colnames(los), 'LAB')]
+
 los <- los[los['los'] <= 30,]
 
 # # Keeping either only dead or alive patients
@@ -151,7 +155,7 @@ dist="loglogistic"
 # (fit <- tbs.survreg.be(f))
 
 # Getting p-values for each feature and choosing top n
-n=12 # 12 for no resampling, 11 with exponential resampling (but singularities occur)
+n=9
 tb <- data.frame(summary(fit)$table)
 tb <- tb[-c(1, length(tb$p)),]
 ordered_tb <- tb[order(tb$p),]
