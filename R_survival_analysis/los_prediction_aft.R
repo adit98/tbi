@@ -151,7 +151,7 @@ dist="loglogistic"
 # (fit <- tbs.survreg.be(f))
 
 # Getting p-values for each feature and choosing top n
-n=12 # 12 for no resampling, 11 with exponential resampling (but singularities occur)
+n=9 # 12 for no resampling, 11 with exponential resampling (but singularities occur)
 tb <- data.frame(summary(fit)$table)
 tb <- tb[-c(1, length(tb$p)),]
 ordered_tb <- tb[order(tb$p),]
@@ -235,8 +235,8 @@ for (i in 1:20) {
   
   # Randomly splitting all_data into train, val, test
   train_ind <- sample(seq_len(nrow(los)), size = smp_size)
-  train <- (los[train_ind, ])
-  test <- (los[-train_ind, ])
+  train <- (all_data[train_ind, ])
+  test <- (all_data[-train_ind, ])
   val_size <- floor(0.25 * nrow(train))
   val_ind <- sample(seq_len(nrow(train)), size = val_size)
   val <- train[val_ind,]

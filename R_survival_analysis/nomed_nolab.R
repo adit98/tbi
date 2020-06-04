@@ -20,6 +20,9 @@ set.seed(20180925)
 
 #------------------- LOS ----------------------#
 mort_status <- 'alive'
+nomed <- FALSE
+nolab <- FALSE
+
 
 # Loading data
 los = read.table("../notebooks/los_surv_analysis_dat.csv", sep=",", header=TRUE)
@@ -29,8 +32,12 @@ los$patientunitstayid <- NULL
 los$X <- NULL
 
 # Removing columns that start with MED or LAB
-los <- los[,!startsWith(colnames(los), 'MED')]
-los <- los[,!startsWith(colnames(los), 'LAB')]
+if (nomed) {
+  los <- los[,!startsWith(colnames(los), 'MED')]
+}
+if (nolab) {
+  los <- los[,!startsWith(colnames(los), 'LAB')]
+}
 
 los <- los[los['los'] <= 30,]
 
@@ -99,7 +106,7 @@ dist="loglogistic"
 # (fit <- tbs.survreg.be(f))
 
 # Getting p-values for each feature and choosing top n
-n=9
+n=26
 tb <- data.frame(summary(fit)$table)
 tb <- tb[-c(1, length(tb$p)),]
 ordered_tb <- tb[order(tb$p),]
@@ -157,16 +164,16 @@ abline(coef=c(0,1))
 
 # --------- Adding interaction terms ------------------ #
 
-# Trying all possible interaction terms between selected features and selecting top k
-(fit <- survreg(Surv(los,occurs) ~ (. -los -occurs)^2+(. -los -occurs)^3, data = train, dist=dist))
-
-# Getting p-values for each feature and choosing top k
-k=1
-tb <- data.frame(summary(fit)$table)
-tb <- tb[-c(1, length(tb$p)),]
-ordered_tb <- tb[order(tb$p),]
-top_k <- rownames(ordered_tb[1:k,])
-top_k
+# # Trying all possible interaction terms between selected features and selecting top k
+# (fit <- survreg(Surv(los,occurs) ~ (. -los -occurs)^2+(. -los -occurs)^3, data = train, dist=dist))
+# 
+# # Getting p-values for each feature and choosing top k
+# k=1
+# tb <- data.frame(summary(fit)$table)
+# tb <- tb[-c(1, length(tb$p)),]
+# ordered_tb <- tb[order(tb$p),]
+# top_k <- rownames(ordered_tb[1:k,])
+# top_k
 
 
 # Doing cross-validation
@@ -184,17 +191,19 @@ for (i in 1:20) {
   
   # Randomly splitting all_data into train, val, test
   train_ind <- sample(seq_len(nrow(los)), size = smp_size)
-  train <- (los[train_ind, ])
-  test <- (los[-train_ind, ])
+  train <- (all_data[train_ind, ])
+  test <- (all_data[-train_ind, ])
   val_size <- floor(0.25 * nrow(train))
   val_ind <- sample(seq_len(nrow(train)), size = val_size)
   val <- train[val_ind,]
   train <- train[-val_ind,]
   
   # Fitting model with selected features
-  f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
+  # f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
   # (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
-  (fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
+  # (fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
+  
+  (fit <- survreg(Surv(los,occurs) ~ . -los -occurs, data = train, dist=dist))
   
   # Plotting prediction versus actual
   y_pred <- predict(fit, val)

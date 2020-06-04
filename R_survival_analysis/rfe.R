@@ -98,6 +98,7 @@ test <- test_norm
 dist="loglogistic"
 
 nfeat <- 30
+cols <- NULL
 # ------------------ RFE ----------------- #
 if (rfefunc == 'rfFuncs') {
   ctrl <- rfeControl(functions = rfFuncs,
@@ -151,8 +152,8 @@ for (i in 1:20) {
   
   # Randomly splitting all_data into train, val, test
   train_ind <- sample(seq_len(nrow(los)), size = smp_size)
-  train <- (los[train_ind, ])
-  test <- (los[-train_ind, ])
+  train <- (all_data[train_ind, ])
+  test <- (all_data[-train_ind, ])
   val_size <- floor(0.25 * nrow(train))
   val_ind <- sample(seq_len(nrow(train)), size = val_size)
   val <- train[val_ind,]
