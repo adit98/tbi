@@ -20,6 +20,9 @@ set.seed(20180925)
 
 #------------------- LOS ----------------------#
 mort_status <- 'alive'
+nomed <- TRUE
+nolab <- TRUE
+rfefunc <- 'treebagFuncs' # Use rfFuncs or treebagFuncs
 
 # Loading data
 los = read.table("../notebooks/los_surv_analysis_dat.csv", sep=",", header=TRUE)
@@ -29,6 +32,14 @@ los$patientunitstayid <- NULL
 los$X <- NULL
 
 los <- los[los['los'] <= 30,]
+
+# Removing columns that start with MED or LAB
+if (nomed) {
+  los <- los[,!startsWith(colnames(los), 'MED')]
+}
+if (nolab) {
+  los <- los[,!startsWith(colnames(los), 'LAB')]
+}
 
 # # Keeping either only dead or alive patients
 # if (mort_status == 'alive') {
@@ -86,26 +97,33 @@ test <- test_norm
 
 dist="loglogistic"
 
+nfeat <- 30
 # ------------------ RFE ----------------- #
-ctrl <- rfeControl(functions = treebagFuncs,
-                   method = "repeatedcv",
-                   repeats = 5,
-                   verbose = FALSE)
-x <- train[, !colnames(train) %in% c("los", "occurs")]
-y <- train$los
-# lmProfile <- rfe(x,y,rfeControl=ctrl)
-nfeat <- 23
-cols <- colnames((lmProfile$fit$X)[0:nfeat])
-# cols <- rownames(lmProfile$fit$importance)[0:nfeat]
+if (rfefunc == 'rfFuncs') {
+  ctrl <- rfeControl(functions = rfFuncs,
+                     method = "repeatedcv",
+                     repeats = 5,
+                     verbose = FALSE)
+  x <- train[, !colnames(train) %in% c("los", "occurs")]
+  y <- train$los
+  # lmProfile <- rfe(x,y,rfeControl=ctrl)
+  cols <- rownames(lmProfile$fit$importance)[0:nfeat] # Use with rfFUncs
+} else if (rfefunc == 'treebagFuncs') {
+  ctrl <- rfeControl(functions = treebagFuncs,
+                     method = "repeatedcv",
+                     repeats = 5,
+                     verbose = FALSE)
+  x <- train[, !colnames(train) %in% c("los", "occurs")]
+  y <- train$los
+  # lmProfile <- rfe(x,y,rfeControl=ctrl)
+  cols <- colnames((lmProfile$fit$X)[0:nfeat]) # Use with treebagFuncs
+}
 cols
 
 # Getting selected columns in train data
 train <- train[, cols]
 train$occurs <- occurs_train
 train$los <- los_train
-
-# Fitting model with selected features
-(fit <- survreg(Surv(los,occurs) ~ . -los -occurs, data = train, dist=dist))
 
 # Now selecting same variables for val and test
 val <- subset(val, select=cols)
@@ -118,74 +136,85 @@ test$los <- los_test
 
 # ----------------- END RFE ---------------- #
 
-# Plotting prediction versus actual
-y_pred <- predict(fit, val)
-# y_pred <- data.matrix(val) %*% coefs
-y_val <- val$los
-rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+# Doing cross-validation
+val_rmses <- c()
+test_rmses <- c()
+best_val_rmse <- Inf
+best_val_ypred <- NULL
+best_yval <- NULL
+best_test_ypred <- NULL
+best_ytest <- NULL
+set.seed(NULL)
+for (i in 1:20) {
+  
+  all_data <- bind_rows(list(train, val, test))
+  
+  # Randomly splitting all_data into train, val, test
+  train_ind <- sample(seq_len(nrow(los)), size = smp_size)
+  train <- (los[train_ind, ])
+  test <- (los[-train_ind, ])
+  val_size <- floor(0.25 * nrow(train))
+  val_ind <- sample(seq_len(nrow(train)), size = val_size)
+  val <- train[val_ind,]
+  train <- train[-val_ind,]
+  
+  # Fitting model with selected features
+  (fit <- survreg(Surv(los,occurs) ~ . -los -occurs, data = train, dist=dist))
+  
+  # Plotting prediction versus actual
+  y_pred <- predict(fit, val)
+  # y_pred <- data.matrix(val) %*% coefs
+  y_val <- val$los
+  rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+  
+  rmse
+  val_rmses <- c(val_rmses, rmse)
+  plot(y_val, y_pred,
+       main="Predicted vs. True LOS on Val Set", 
+       xlab="True LOS (days)", 
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+  
+  # Testing
+  y_pred1 <- predict(fit, test)
+  y_test <- test$los
+  rmse1 <- sqrt(sum((y_pred1-y_test)^2)/length(y_pred1))
+  
+  rmse1
+  test_rmses <- c(test_rmses, rmse1)
+  if (rmse < best_val_rmse) {
+    best_val_rmse <- rmse
+    best_val_ypred <- y_pred
+    best_yval <- y_val
+    best_test_ypred <- y_pred1
+    best_ytest <- y_test
+  }
+  plot(y_test, y_pred1,
+       main="Predicted vs. True LOS on Test Set", 
+       xlab="True LOS (days)", 
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+}
+val_rmses
+test_rmses
 
-rmse
-plot(y_val, y_pred,
-     main="Predicted vs. True LOS on Val Set", 
-     xlab="True LOS (days)", 
+mean(val_rmses)
+sd(val_rmses)
+mean(test_rmses)
+sd(test_rmses)
+
+plot(best_yval, best_val_ypred,
+     main="Predicted vs. True LOS on Val Set",
+     xlab="True LOS (days)",
      ylab="Predicted LOS (days)",
      xlim=c(0,50), ylim=c(0,50))
 abline(coef=c(0,1))
 
-# Testing
-y_pred <- predict(fit, test)
-y_test <- test$los
-rmse <- sqrt(sum((y_pred-y_test)^2)/length(y_pred))
-
-rmse
-plot(y_test, y_pred,
-     main="Predicted vs. True LOS on Test Set", 
-     xlab="True LOS (days)", 
+plot(best_ytest, best_test_ypred,
+     main="Predicted vs. True LOS on Test Set",
+     xlab="True LOS (days)",
      ylab="Predicted LOS (days)",
      xlim=c(0,50), ylim=c(0,50))
 abline(coef=c(0,1))
-
-
-# # --------- Adding interaction terms ------------------ #
-# 
-# # Trying all possible interaction terms between selected features and selecting top k
-# (fit <- survreg(Surv(los,occurs) ~ (. -los -occurs)^2+(. -los -occurs)^3, data = train, dist=dist))
-# 
-# # Getting p-values for each feature and choosing top k
-# k=1
-# tb <- data.frame(summary(fit)$table)
-# tb <- tb[-c(1, length(tb$p)),]
-# ordered_tb <- tb[order(tb$p),]
-# top_k <- rownames(ordered_tb[1:k,])
-# top_k
-# 
-# # Fitting model with selected features
-# f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
-# # (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
-# (fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
-# 
-# # Plotting prediction versus actual
-# y_pred <- predict(fit, val)
-# y_val <- val$los
-# rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
-# 
-# rmse
-# plot(y_val, y_pred,
-#      main="Predicted vs. True LOS on Val Set",
-#      xlab="True LOS (days)",
-#      ylab="Predicted LOS (days)",
-#      xlim=c(0,50), ylim=c(0,50))
-# abline(coef=c(0,1))
-# 
-# # Testing
-# y_pred <- predict(fit, test)
-# y_test <- test$los
-# rmse <- sqrt(sum((y_pred-y_test)^2)/length(y_pred))
-# 
-# rmse
-# plot(y_test, y_pred,
-#      main="Predicted vs. True LOS on Test Set",
-#      xlab="True LOS (days)",
-#      ylab="Predicted LOS (days)",
-#      xlim=c(0,50), ylim=c(0,50))
-# abline(coef=c(0,1))

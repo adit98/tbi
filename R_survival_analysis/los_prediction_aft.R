@@ -220,31 +220,86 @@ ordered_tb <- tb[order(tb$p),]
 top_k <- rownames(ordered_tb[1:k,])
 top_k
 
-# Fitting model with selected features
-f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
-# (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
-(fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
+# Doing cross-validation
+val_rmses <- c()
+test_rmses <- c()
+best_val_rmse <- Inf
+best_val_ypred <- NULL
+best_yval <- NULL
+best_test_ypred <- NULL
+best_ytest <- NULL
+set.seed(NULL)
+for (i in 1:20) {
+  
+  all_data <- bind_rows(list(train, val, test))
+  
+  # Randomly splitting all_data into train, val, test
+  train_ind <- sample(seq_len(nrow(los)), size = smp_size)
+  train <- (los[train_ind, ])
+  test <- (los[-train_ind, ])
+  val_size <- floor(0.25 * nrow(train))
+  val_ind <- sample(seq_len(nrow(train)), size = val_size)
+  val <- train[val_ind,]
+  train <- train[-val_ind,]
+  
+  # Fitting model with selected features
+  f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
+  # (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
+  (fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
+  
+  # Plotting prediction versus actual
+  y_pred <- predict(fit, val)
+  y_val <- val$los
+  rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+  
+  rmse
+  val_rmses <- c(val_rmses, rmse)
 
-# Plotting prediction versus actual
-y_pred <- predict(fit, val)
-y_val <- val$los
-rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+  plot(y_val, y_pred,
+       main="Predicted vs. True LOS on Val Set",
+       xlab="True LOS (days)",
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+  
+  # Testing
+  y_pred1 <- predict(fit, test)
+  y_test <- test$los
+  rmse1 <- sqrt(sum((y_pred1-y_test)^2)/length(y_pred1))
+  
+  rmse1
+  test_rmses <- c(test_rmses, rmse1)
+  if (rmse < best_val_rmse) {
+    best_val_rmse <- rmse
+    best_val_ypred <- y_pred
+    best_yval <- y_val
+    best_test_ypred <- y_pred1
+    best_ytest <- y_test
+  }
+  plot(y_test, y_pred1,
+       main="Predicted vs. True LOS on Test Set",
+       xlab="True LOS (days)",
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+}
 
-rmse
-plot(y_val, y_pred,
+val_rmses
+test_rmses
+
+mean(val_rmses)
+sd(val_rmses)
+mean(test_rmses)
+sd(test_rmses)
+
+plot(best_yval, best_val_ypred,
      main="Predicted vs. True LOS on Val Set",
      xlab="True LOS (days)",
      ylab="Predicted LOS (days)",
      xlim=c(0,50), ylim=c(0,50))
 abline(coef=c(0,1))
 
-# Testing
-y_pred <- predict(fit, test)
-y_test <- test$los
-rmse <- sqrt(sum((y_pred-y_test)^2)/length(y_pred))
-
-rmse
-plot(y_test, y_pred,
+plot(best_ytest, best_test_ypred,
      main="Predicted vs. True LOS on Test Set",
      xlab="True LOS (days)",
      ylab="Predicted LOS (days)",

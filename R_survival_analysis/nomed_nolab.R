@@ -88,62 +88,6 @@ train <- train_norm
 val <- val_norm
 test <- test_norm
 
-# # ------- Resampling the Train dataset ---------- #
-# 
-# # Setting resampling method
-# # 'mean' or 'exp_decay'
-# resample_method = 'exp_decay'
-# 
-# # To keep the same number of people in each bin
-# histogram(train$los)
-# intervals <- seq(from=3, to=30, by=3)
-# temp0 <- train[(train['los'] >= 0) & (train['los'] <= 3),]
-# cts <- c(nrow(temp0))
-# for (i in intervals[2:length(intervals)]) {
-#   temp <- train[(train['los'] > i-3) & (train['los'] <= i),]
-#   print(nrow(temp))
-#   cts <- c(cts, nrow(temp))
-# }
-# 
-# # ------ Trying exponential decay for resampling ---- #
-# fun1 <- function(a,r,t) { 
-#   return(a*exp(-r*t))
-# }
-# # ----------------------------------------------------#
-# 
-# # Getting number of elements per bin
-# if (resample_method == 'mean') {
-#   binsize <- rep(ceiling(mean(cts)), length(intervals))
-# } else if (resample_method == 'exp_decay') {
-#   t <- seq(from=0, to=30-3, by=3)
-#   binsize <- fun1(260,0.05,t)  
-# } else {
-#   stop(paste("Invalid resampling method:", resample_method))
-# }
-# 
-# temp0 <- train[(train['los'] >= 0) & (train['los'] <= 3),]
-# rand_idcs <- round(runif(binsize[1])*nrow(temp0))
-# train_resamp <- temp0[rand_idcs,]
-# 
-# j = 2
-# for (i in intervals[2:length(intervals)]) {
-#   temp <- train[(train['los'] > i-3) & (train['los'] <= i),]
-#   rand_idcs <- round(runif(binsize[j])*nrow(temp))
-#   train_resamp <- rbind(train_resamp, temp[rand_idcs,])
-#   j = j+1
-# }
-# 
-# train <- train_resamp
-# 
-# los_train <- train$los
-# occurs_train <- train$occurs
-# los_val <- val$los
-# occurs_val <- val$occurs
-# los_test <- test$los
-# occurs_test <- test$occurs
-# 
-# # -------- End of resampling --------- #
-
 dist="loglogistic"
 
 # Using variable selection
@@ -224,31 +168,87 @@ ordered_tb <- tb[order(tb$p),]
 top_k <- rownames(ordered_tb[1:k,])
 top_k
 
-# Fitting model with selected features
-f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
-# (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
-(fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
 
-# Plotting prediction versus actual
-y_pred <- predict(fit, val)
-y_val <- val$los
-rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+# Doing cross-validation
+val_rmses <- c()
+test_rmses <- c()
+best_val_rmse <- Inf
+best_val_ypred <- NULL
+best_yval <- NULL
+best_test_ypred <- NULL
+best_ytest <- NULL
+set.seed(NULL)
+for (i in 1:20) {
+  
+  all_data <- bind_rows(list(train, val, test))
+  
+  # Randomly splitting all_data into train, val, test
+  train_ind <- sample(seq_len(nrow(los)), size = smp_size)
+  train <- (los[train_ind, ])
+  test <- (los[-train_ind, ])
+  val_size <- floor(0.25 * nrow(train))
+  val_ind <- sample(seq_len(nrow(train)), size = val_size)
+  val <- train[val_ind,]
+  train <- train[-val_ind,]
+  
+  # Fitting model with selected features
+  f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")
+  # (fit <- survreg(Surv(los,occurs) ~ . -los -occurs+noquote(paste(top_k, collapse = '+')), data = train, dist=dist))
+  (fit <- do.call("survreg", list(as.formula(f), data=as.name("train"), dist=as.name("dist"))))
+  
+  # Plotting prediction versus actual
+  y_pred <- predict(fit, val)
+  y_val <- val$los
+  rmse <- sqrt(sum((y_pred-y_val)^2)/length(y_pred))
+  
+  rmse
+  val_rmses <- c(val_rmses, rmse)
+  
+  plot(y_val, y_pred,
+       main="Predicted vs. True LOS on Val Set",
+       xlab="True LOS (days)",
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+  
+  # Testing
+  y_pred1 <- predict(fit, test)
+  y_test <- test$los
+  rmse1 <- sqrt(sum((y_pred1-y_test)^2)/length(y_pred1))
+  
+  rmse1
+  test_rmses <- c(test_rmses, rmse1)
+  if (rmse < best_val_rmse) {
+    best_val_rmse <- rmse
+    best_val_ypred <- y_pred
+    best_yval <- y_val
+    best_test_ypred <- y_pred1
+    best_ytest <- y_test
+  }
+  plot(y_test, y_pred1,
+       main="Predicted vs. True LOS on Test Set",
+       xlab="True LOS (days)",
+       ylab="Predicted LOS (days)",
+       xlim=c(0,50), ylim=c(0,50))
+  abline(coef=c(0,1))
+}
 
-rmse
-plot(y_val, y_pred,
+val_rmses
+test_rmses
+
+mean(val_rmses)
+sd(val_rmses)
+mean(test_rmses)
+sd(test_rmses)
+
+plot(best_yval, best_val_ypred,
      main="Predicted vs. True LOS on Val Set",
      xlab="True LOS (days)",
      ylab="Predicted LOS (days)",
      xlim=c(0,50), ylim=c(0,50))
 abline(coef=c(0,1))
 
-# Testing
-y_pred <- predict(fit, test)
-y_test <- test$los
-rmse <- sqrt(sum((y_pred-y_test)^2)/length(y_pred))
-
-rmse
-plot(y_test, y_pred,
+plot(best_ytest, best_test_ypred,
      main="Predicted vs. True LOS on Test Set",
      xlab="True LOS (days)",
      ylab="Predicted LOS (days)",
