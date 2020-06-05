@@ -30,12 +30,14 @@ los$X <- NULL
 
 los <- los[los['los'] <= 30,]
 
-# # Keeping either only dead or alive patients
-# if (mort_status == 'alive') {
-#   los <- los[los['death'] == 'False',]
-# } else if (mort_status == 'dead') {
-#   los <- los[los['death'] == 'True',]
-# }
+# Keeping either only dead or alive patients
+if (mort_status == 'alive') {
+  los <- los[los['death'] == 'False',]
+} else if (mort_status == 'dead') {
+  los <- los[los['death'] == 'True',]
+} else {
+  los <- los
+}
 
 los$death <- NULL
 

@@ -41,12 +41,14 @@ if (nolab) {
   los <- los[,!startsWith(colnames(los), 'LAB')]
 }
 
-# # Keeping either only dead or alive patients
-# if (mort_status == 'alive') {
-#   los <- los[los['death'] == 'False',]
-# } else if (mort_status == 'dead') {
-#   los <- los[los['death'] == 'True',]
-# }
+# Keeping either only dead or alive patients
+if (mort_status == 'alive') {
+  los <- los[los['death'] == 'False',]
+} else if (mort_status == 'dead') {
+  los <- los[los['death'] == 'True',]
+} else {
+  los <- los
+}
 
 los$death <- NULL
 
@@ -97,7 +99,7 @@ test <- test_norm
 
 dist="loglogistic"
 
-nfeat <- 30
+nfeat <- 40
 cols <- NULL
 # ------------------ RFE ----------------- #
 if (rfefunc == 'rfFuncs') {
