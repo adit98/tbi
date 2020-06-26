@@ -15,6 +15,7 @@ library(mlbench)
 library(caret)
 require(MASS)
 library(TBSSurvival)
+library(pracma)
 
 set.seed(20180925)
 
@@ -183,8 +184,15 @@ abline(coef=c(0,1))
 
 
 # Doing cross-validation
+num_groups <- 3
+groups <- round(linspace(0, 31, num_groups+1))
+tot_val_maes <- rep(0,length(groups)-1)
+tot_test_maes <- rep(0,length(groups)-1)
+tot_val_maes_onval <- rep(0,length(groups)-1)
+tot_test_maes_onval <- rep(0,length(groups)-1)
 val_rmses <- c()
 test_rmses <- c()
+group_sizes <- rep(0,length(groups)-1)
 best_val_rmse <- Inf
 best_val_ypred <- NULL
 best_yval <- NULL
@@ -241,6 +249,28 @@ for (i in 1:20) {
   rmse
   val_rmses <- c(val_rmses, rmse)
   
+  # Splitting by los group and calculating rmse
+  mae_los <- data.frame(stack(y_pred)$values, y_val)
+  for (i in 1:(length(groups)-1)) {
+    df1 <- mae_los[(mae_los['y_val'] >= groups[i]) & (mae_los['y_val'] < groups[i+1]),]
+    mae1 <- sum(abs(df1$stack.y_pred-df1$y_val))/length(df1$stack.y_pred)
+    r1 <- sqrt(sum((df1$stack.y_pred-df1$y_val)^2)/length(df1$stack.y_pred))
+    tot_val_maes[i] <- tot_val_maes[i] + r1
+  }
+
+  mae_los <- data.frame(stack(y_pred)$values, y_val)
+  for (i in 1:(length(groups)-1)) {
+    df1 <- mae_los[(mae_los['stack.y_pred..values'] >= groups[i]) & (mae_los['stack.y_pred..values'] < groups[i+1]),]
+    if (length(df1$stack.y_pred) > 0) {
+      mae1 <- sum(abs(df1$stack.y_pred..values-df1$y_val))/length(df1$stack.y_pred)
+      r1 <- sqrt(sum((df1$stack.y_pred..values-df1$y_val)^2)/length(df1$stack.y_pred))
+    } else {
+      mae1 <- Inf
+      r1 <- Inf
+    }
+    tot_val_maes_onval[i] <- tot_val_maes_onval[i] + r1
+  }
+  
   plot(y_val, y_pred,
        main="Predicted vs. True LOS on Val Set",
        xlab="True LOS (days)",
@@ -255,6 +285,29 @@ for (i in 1:20) {
   
   rmse1
   test_rmses <- c(test_rmses, rmse1)
+  
+  # Splitting by los group and calculating rmse
+  mae_los <- data.frame(stack(y_pred1)$values, y_test)
+  for (i in 1:(length(groups)-1)) {
+    df1 <- mae_los[(mae_los['y_test'] >= groups[i]) & (mae_los['y_test'] < groups[i+1]),]
+    mae1 <- sum(abs(df1$stack.y_pred1-df1$y_test))/length(df1$stack.y_pred1)
+    r1 <- sqrt(sum((df1$stack.y_pred1-df1$y_test)^2)/length(df1$stack.y_pred1))
+    tot_test_maes[i] <- tot_test_maes[i] + r1
+  }
+  
+  mae_los <- data.frame(stack(y_pred1)$values, y_test)
+  for (i in 1:(length(groups)-1)) {
+    df1 <- mae_los[(mae_los['stack.y_pred1..values'] >= groups[i]) & (mae_los['stack.y_pred1..values'] < groups[i+1]),]
+    if (length(df1$stack.y_pred1) > 0) {
+      mae1 <- sum(abs(df1$stack.y_pred1..values-df1$y_test))/length(df1$stack.y_pred1)
+      r1 <- sqrt(sum((df1$stack.y_pred1..values-df1$y_test)^2)/length(df1$stack.y_pred1))
+    } else {
+      mae1 <- Inf
+      r1 <- Inf
+    }
+    tot_test_maes_onval[i] <- tot_test_maes_onval[i] + r1
+  }
+  
   if (rmse < best_val_rmse) {
     best_val_rmse <- rmse
     best_val_ypred <- y_pred
@@ -277,6 +330,12 @@ mean(val_rmses)
 sd(val_rmses)
 mean(test_rmses)
 sd(test_rmses)
+
+tot_val_maes/20
+tot_test_maes/20
+
+tot_val_maes_onval/20
+tot_test_maes_onval/20
 
 plot(best_yval, best_val_ypred,
      main="Predicted vs. True LOS on Val Set",

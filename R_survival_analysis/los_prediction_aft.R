@@ -233,7 +233,7 @@ best_ytest <- NULL
 set.seed(NULL)
 for (i in 1:20) {
   
-  all_data <- bind_rows(list(train, val, test))
+  all_data <- los[,c(top_n,'los','occurs')]
   
   # Randomly splitting all_data into train, val, test
   train_ind <- sample(seq_len(nrow(los)), size = smp_size)
@@ -243,6 +243,28 @@ for (i in 1:20) {
   val_ind <- sample(seq_len(nrow(train)), size = val_size)
   val <- train[val_ind,]
   train <- train[-val_ind,]
+  
+  los_train <- train$los
+  occurs_train <- train$occurs
+  los_val <- val$los
+  occurs_val <- val$occurs
+  los_test <- test$los
+  occurs_test <- test$occurs
+  
+  train_norm <- as.data.frame(apply(train, 2, normalize))
+  val_norm <- as.data.frame(apply(val, 2, normalize))
+  test_norm <- as.data.frame(apply(test, 2, normalize))
+  
+  train_norm$los <- los_train
+  train_norm$occurs <- occurs_train
+  val_norm$los <- los_val
+  val_norm$occurs <- occurs_val
+  test_norm$los <- los_test
+  test_norm$occurs <- occurs_test
+  
+  train <- train_norm
+  val <- val_norm
+  test <- test_norm
   
   # Fitting model with selected features
   f <- paste("Surv(los, occurs) ~ . -los -occurs+",(paste(top_k, collapse = '+')), sep="")

@@ -19,10 +19,10 @@ library(TBSSurvival)
 set.seed(20180925)
 
 #------------------- LOS ----------------------#
-mort_status <- 'alive'
+mort_status <- 'both'
 nomed <- TRUE
 nolab <- TRUE
-rfefunc <- 'treebagFuncs' # Use rfFuncs or treebagFuncs
+rfefunc <- 'rfFuncs' # Use rfFuncs or treebagFuncs
 
 # Loading data
 los = read.table("../notebooks/los_surv_analysis_dat.csv", sep=",", header=TRUE)
@@ -99,7 +99,7 @@ test <- test_norm
 
 dist="loglogistic"
 
-nfeat <- 40
+nfeat <- 24
 cols <- NULL
 # ------------------ RFE ----------------- #
 if (rfefunc == 'rfFuncs') {
@@ -150,7 +150,7 @@ best_ytest <- NULL
 set.seed(NULL)
 for (i in 1:20) {
   
-  all_data <- bind_rows(list(train, val, test))
+  all_data <- los[,c(cols,'los','occurs')]
   
   # Randomly splitting all_data into train, val, test
   train_ind <- sample(seq_len(nrow(los)), size = smp_size)
@@ -160,6 +160,28 @@ for (i in 1:20) {
   val_ind <- sample(seq_len(nrow(train)), size = val_size)
   val <- train[val_ind,]
   train <- train[-val_ind,]
+  
+  los_train <- train$los
+  occurs_train <- train$occurs
+  los_val <- val$los
+  occurs_val <- val$occurs
+  los_test <- test$los
+  occurs_test <- test$occurs
+  
+  train_norm <- as.data.frame(apply(train, 2, normalize))
+  val_norm <- as.data.frame(apply(val, 2, normalize))
+  test_norm <- as.data.frame(apply(test, 2, normalize))
+  
+  train_norm$los <- los_train
+  train_norm$occurs <- occurs_train
+  val_norm$los <- los_val
+  val_norm$occurs <- occurs_val
+  test_norm$los <- los_test
+  test_norm$occurs <- occurs_test
+  
+  train <- train_norm
+  val <- val_norm
+  test <- test_norm
   
   # Fitting model with selected features
   (fit <- survreg(Surv(los,occurs) ~ . -los -occurs, data = train, dist=dist))
