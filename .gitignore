@@ -3,3 +3,4 @@ data/*.csv
 processed/processed/*.csv
 __pycache__/
 data/*
+**/*.ipynb
